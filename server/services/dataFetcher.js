@@ -1,7 +1,9 @@
 const axios = require('axios');
 
 // Using Finnhub API - Free tier available
-const FINNHUB_API_KEY = process.env.FINNHUB_API_KEY || 'your_finnhub_key';
+const FINNHUB_API_KEY = process.env.FINNHUB_API_KEY;
+const POLYGON_API_KEY = process.env.POLYGON_API_KEY;
+const TWELVE_DATA_API_KEY = process.env.TWELVE_DATA_API_KEY;
 const FINNHUB_BASE_URL = 'https://finnhub.io/api/v1';
 
 // Commodity symbols
@@ -15,8 +17,10 @@ const SYMBOLS = {
 class DataFetcher {
   async getPriceData(symbol) {
     try {
-      // For demo purposes, we'll use a combination of APIs
-      // In production, use Finnhub, Polygon.io, or Twelve Data
+      // Validate API keys
+      if (!FINNHUB_API_KEY) {
+        throw new Error('FINNHUB_API_KEY is not configured. Please add it to your environment variables.');
+      }
       
       const response = await axios.get(`${FINNHUB_BASE_URL}/quote`, {
         params: {
