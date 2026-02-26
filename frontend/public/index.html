@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Forex Predictor - Real-time Market Prediction</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>🔮 Forex Predictor</h1>
+      <p>Real-time Forex & Commodity Price Prediction Dashboard</p>
+    </header>
+
+    <main>
+      <!-- Asset Selection -->
+      <section class="controls">
+        <div class="asset-selector">
+          <label for="assetSelect">Select Asset:</label>
+          <select id="assetSelect">
+            <option value="XAUUSD">Gold (XAU/USD)</option>
+            <option value="EURUSD">EUR/USD</option>
+            <option value="GBPUSD">GBP/USD</option>
+            <option value="USDJPY">USD/JPY</option>
+          </select>
+        </div>
+
+        <div class="model-selector">
+          <label for="modelSelect">Prediction Model:</label>
+          <select id="modelSelect">
+            <option value="ensemble">Ensemble (Recommended)</option>
+            <option value="linear">Linear Regression</option>
+            <option value="exponential">Exponential</option>
+            <option value="arima">ARIMA</option>
+          </select>
+        </div>
+
+        <button id="predictBtn" class="btn-predict">Predict Now</button>
+        <button id="refreshBtn" class="btn-refresh">Refresh Data</button>
+      </section>
+
+      <!-- Main Display -->
+      <section class="dashboard">
+        <div class="left-panel">
+          <!-- Price Info -->
+          <div class="card price-card">
+            <h2 id="assetName">Gold (XAU/USD)</h2>
+            <div class="price-display">
+              <div class="current-price">
+                <span id="currentPrice">$0.00</span>
+                <span id="priceChange" class="price-change">+0.00%</span>
+              </div>
+              <div class="price-stats">
+                <div><small>High:</small> <strong id="dayHigh">0.00</strong></div>
+                <div><small>Low:</small> <strong id="dayLow">0.00</strong></div>
+                <div><small>Open:</small> <strong id="openPrice">0.00</strong></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Prediction Signal -->
+          <div class="card signal-card">
+            <h3>Prediction Signal</h3>
+            <div class="signal-display">
+              <div id="signalBox" class="signal-box neutral">
+                <div class="signal-action" id="signalAction">ANALYZING...</div>
+                <div class="signal-confidence">
+                  <span>Confidence:</span>
+                  <div class="confidence-bar">
+                    <div id="confidenceBar" class="confidence-fill" style="width: 0%"></div>
+                  </div>
+                  <span id="confidencePercent">0%</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Margins Info -->
+          <div class="card margins-card">
+            <h3>Trading Margins</h3>
+            <div class="margins-info">
+              <div class="margin-item">
+                <span>Entry Price:</span>
+                <strong id="entryPrice">$0.00</strong>
+              </div>
+              <div class="margin-item">
+                <span>Stop Loss:</span>
+                <strong id="stopLoss" class="loss">$0.00</strong>
+              </div>
+              <div class="margin-item">
+                <span>Take Profit:</span>
+                <strong id="takeProfit" class="profit">$0.00</strong>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="right-panel">
+          <!-- Chart -->
+          <div class="card chart-container">
+            <h3>Price & Prediction Chart</h3>
+            <canvas id="predictionChart"></canvas>
+          </div>
+        </div>
+      </section>
+
+      <!-- Indicators -->
+      <section class="indicators">
+        <div class="card indicator-card">
+          <h4>RSI</h4>
+          <div class="indicator-value" id="rsiValue">50</div>
+          <small>Overbought > 70 | Oversold < 30</small>
+        </div>
+        <div class="card indicator-card">
+          <h4>MACD</h4>
+          <div class="indicator-value" id="macdValue">0</div>
+          <small>Positive = Bullish | Negative = Bearish</small>
+        </div>
+        <div class="card indicator-card">
+          <h4>Bollinger Bands</h4>
+          <div class="indicator-value" id="bbandsValue">0</div>
+          <small>Volatility Measure</small>
+        </div>
+        <div class="card indicator-card">
+          <h4>ATR</h4>
+          <div class="indicator-value" id="atrValue">0</div>
+          <small>Average True Range</small>
+        </div>
+      </section>
+
+      <!-- Predictions Table -->
+      <section class="predictions">
+        <h3>Price Predictions (Next 5 Periods)</h3>
+        <table id="predictionsTable" class="predictions-table">
+          <thead>
+            <tr>
+              <th>Period</th>
+              <th>Predicted Price</th>
+              <th>Change %</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td colspan="3">Run prediction to see forecasts</td></tr>
+          </tbody>
+        </table>
+      </section>
+    </main>
+  </div>
+
+  <script src="dashboard.js"></script>
+</body>
+</html>
