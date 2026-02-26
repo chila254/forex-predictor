@@ -1,6 +1,6 @@
 {
   "name": "forex-predictor",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Real-time Forex and Gold Price Prediction with Technical Analysis",
   "main": "server/app.js",
   "scripts": {
@@ -14,9 +14,12 @@
     "cors": "^2.8.5",
     "dotenv": "^16.3.1"
   },
+  "devDependencies": {
+    "tailwindcss": "^3.4.1"
+  },
   "engines": {
     "node": "24.x"
   },
-  "author": "",
+  "author": "Franklin Chilango",
   "license": "ISC"
 }

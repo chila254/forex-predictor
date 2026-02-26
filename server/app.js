@@ -5,6 +5,8 @@ require('dotenv').config();
 
 const app = express();
 const logger = require('./utils/logger');
+const requestLogger = require('./middleware/requestLogger');
+const errorHandler = require('./middleware/errorHandler');
 
 // Startup logging
 logger.info('Forex Predictor server starting...');
@@ -16,17 +18,8 @@ app.use(cors());
 // Middleware - JSON parsing
 app.use(express.json());
 
-// Middleware - Request logging & performance tracking
-app.use((req, res, next) => {
-  const start = Date.now();
-  
-  res.on('finish', () => {
-    const duration = Date.now() - start;
-    logger.logRequestResponse(req.method, req.path, res.statusCode, duration);
-  });
-  
-  next();
-});
+// Middleware - Request logging
+app.use(requestLogger);
 
 // Serve static files from frontend/public
 app.use(express.static(path.join(__dirname, '../frontend/public')));
@@ -59,16 +52,7 @@ app.use((req, res) => {
 });
 
 // Error handler
-app.use((err, req, res, next) => {
-  logger.error(`Unhandled error: ${err.message}`, err);
-  
-  res.status(err.status || 500).json({ 
-    success: false,
-    error: process.env.NODE_ENV === 'development' 
-      ? err.message 
-      : 'An error occurred'
-  });
-});
+app.use(errorHandler);
 
 // For local development with HTTP server
 if (require.main === module) {

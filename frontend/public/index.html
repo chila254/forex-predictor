@@ -3,163 +3,278 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Forex Predictor - Real-time Market Prediction</title>
-  <link rel="stylesheet" href="styles.css">
+  <title>Forex Predictor - Smart Market Analysis</title>
+  <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: '#00d4ff',
+            success: '#00ff88',
+            danger: '#ff6666',
+            warning: '#ffc800',
+            dark: '#0f0f1e',
+            darker: '#1a1a2e',
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body {
+      background: linear-gradient(135deg, #0f0f1e 0%, #1a1a2e 100%);
+      color: #fff;
+    }
+    .gradient-primary {
+      background: linear-gradient(135deg, #00d4ff, #0088ff);
+    }
+    .gradient-success {
+      background: linear-gradient(135deg, #00ff88, #00cc66);
+    }
+    .glass {
+      background: rgba(30, 30, 46, 0.8);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(0, 212, 255, 0.2);
+    }
+    .card-hover {
+      transition: all 0.3s ease;
+      border-color: rgba(0, 212, 255, 0.5);
+    }
+    .card-hover:hover {
+      border-color: #00ffff;
+      box-shadow: 0 0 20px rgba(0, 212, 255, 0.3);
+      transform: translateY(-2px);
+    }
+    @keyframes slideIn {
+      from { transform: translateX(400px); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+    @keyframes slideOut {
+      from { transform: translateX(0); opacity: 1; }
+      to { transform: translateX(400px); opacity: 0; }
+    }
+  </style>
 </head>
-<body>
-  <div class="container">
-    <header>
-      <h1>🔮 Forex Predictor</h1>
-      <p>Real-time Forex & Commodity Price Prediction Dashboard</p>
-    </header>
-
-    <main>
-      <!-- Asset Selection -->
-      <section class="controls">
-        <div class="asset-selector">
-          <label for="assetSelect">Select Asset:</label>
-          <select id="assetSelect">
-            <option value="XAUUSD">Gold (XAU/USD)</option>
-            <option value="EURUSD">EUR/USD</option>
-            <option value="GBPUSD">GBP/USD</option>
-            <option value="USDJPY">USD/JPY</option>
-          </select>
+<body class="min-h-screen">
+  <!-- Header -->
+  <header class="border-b border-cyan-900/30 glass sticky top-0 z-50">
+    <div class="max-w-7xl mx-auto px-4 py-4 sm:px-6 lg:px-8">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <div class="text-3xl">🔮</div>
+          <div>
+            <h1 class="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">Forex Predictor</h1>
+            <p class="text-sm text-gray-400">AI-powered market prediction system</p>
+          </div>
         </div>
+      </div>
+    </div>
+  </header>
 
-        <div class="model-selector">
-          <label for="modelSelect">Prediction Model:</label>
-          <select id="modelSelect">
-            <option value="ensemble">Ensemble (Recommended)</option>
-            <option value="linear">Linear Regression</option>
-            <option value="exponential">Exponential</option>
-            <option value="arima">ARIMA</option>
-          </select>
-        </div>
+  <!-- Main Container -->
+  <div class="max-w-7xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
 
-        <button id="predictBtn" class="btn-predict">Predict Now</button>
-        <button id="refreshBtn" class="btn-refresh">Refresh Data</button>
-      </section>
+    <!-- Controls Section -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+      <div>
+        <label class="block text-sm font-semibold text-gray-300 mb-2">Select Asset</label>
+        <select id="assetSelect" class="w-full px-4 py-2 bg-darker border border-cyan-500/50 text-white rounded-lg focus:outline-none focus:border-cyan-400 transition">
+          <option value="XAUUSD">Gold (XAU/USD)</option>
+          <option value="EURUSD">EUR/USD</option>
+          <option value="GBPUSD">GBP/USD</option>
+          <option value="USDJPY">USD/JPY</option>
+        </select>
+      </div>
 
-      <!-- Main Display -->
-      <section class="dashboard">
-        <div class="left-panel">
-          <!-- Price Info -->
-          <div class="card price-card">
-            <h2 id="assetName">Gold (XAU/USD)</h2>
-            <div class="price-display">
-              <div class="current-price">
-                <span id="currentPrice">$0.00</span>
-                <span id="priceChange" class="price-change">+0.00%</span>
+      <div>
+        <label class="block text-sm font-semibold text-gray-300 mb-2">Prediction Model</label>
+        <select id="modelSelect" class="w-full px-4 py-2 bg-darker border border-cyan-500/50 text-white rounded-lg focus:outline-none focus:border-cyan-400 transition">
+          <option value="ensemble">Ensemble (Recommended)</option>
+          <option value="linear">Linear Regression</option>
+          <option value="exponential">Exponential</option>
+          <option value="arima">ARIMA</option>
+        </select>
+      </div>
+
+      <div class="flex items-end gap-3">
+        <button id="predictBtn" class="flex-1 gradient-success text-black font-semibold py-2 px-4 rounded-lg hover:shadow-lg transition transform hover:-translate-y-0.5">
+          🔮 Predict Now
+        </button>
+        <button id="refreshBtn" class="flex-1 bg-orange-600 hover:bg-orange-700 text-white font-semibold py-2 px-4 rounded-lg transition">
+          ↻ Refresh
+        </button>
+      </div>
+    </div>
+
+    <!-- Main Dashboard Grid -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+
+      <!-- Left Column -->
+      <div class="lg:col-span-1 space-y-6">
+
+        <!-- Price Card -->
+        <div class="glass rounded-xl p-6 card-hover">
+          <h2 id="assetName" class="text-xl font-bold text-cyan-400 mb-4">Gold (XAU/USD)</h2>
+          <div class="space-y-4">
+            <div>
+              <p class="text-sm text-gray-400">Current Price</p>
+              <p id="currentPrice" class="text-4xl font-bold text-green-400">$0.00</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <span id="priceChange" class="px-3 py-1 bg-green-500/20 text-green-400 rounded-full text-sm font-semibold">+0.00%</span>
+            </div>
+            <div class="grid grid-cols-2 gap-3 pt-3 border-t border-cyan-900/30">
+              <div>
+                <p class="text-xs text-gray-400">High</p>
+                <p id="dayHigh" class="text-lg font-semibold text-gray-200">0.00</p>
               </div>
-              <div class="price-stats">
-                <div><small>High:</small> <strong id="dayHigh">0.00</strong></div>
-                <div><small>Low:</small> <strong id="dayLow">0.00</strong></div>
-                <div><small>Open:</small> <strong id="openPrice">0.00</strong></div>
+              <div>
+                <p class="text-xs text-gray-400">Low</p>
+                <p id="dayLow" class="text-lg font-semibold text-gray-200">0.00</p>
+              </div>
+              <div>
+                <p class="text-xs text-gray-400">Open</p>
+                <p id="openPrice" class="text-lg font-semibold text-gray-200">0.00</p>
+              </div>
+              <div>
+                <p class="text-xs text-gray-400">Vol</p>
+                <p class="text-lg font-semibold text-gray-200">0</p>
               </div>
             </div>
           </div>
+        </div>
 
-          <!-- Prediction Signal -->
-          <div class="card signal-card">
-            <h3>Prediction Signal</h3>
-            <div class="signal-display">
-              <div id="signalBox" class="signal-box neutral">
-                <div class="signal-action" id="signalAction">ANALYZING...</div>
-                <div class="signal-confidence">
-                  <span>Confidence:</span>
-                  <div class="confidence-bar">
-                    <div id="confidenceBar" class="confidence-fill" style="width: 0%"></div>
-                  </div>
-                  <span id="confidencePercent">0%</span>
-                </div>
+        <!-- Signal Card -->
+        <div class="glass rounded-xl p-6 card-hover">
+          <h3 class="text-lg font-bold text-cyan-400 mb-4">Trading Signal</h3>
+          <div id="signalBox" class="bg-blue-900/20 border-2 border-blue-500 rounded-lg p-6 text-center space-y-3">
+            <div id="signalAction" class="text-4xl font-bold text-blue-400">ANALYZING...</div>
+            <div class="space-y-2">
+              <div class="flex justify-between items-center text-sm">
+                <span class="text-gray-400">Confidence</span>
+                <span id="confidencePercent" class="font-semibold">0%</span>
               </div>
-            </div>
-          </div>
-
-          <!-- Margins Info -->
-          <div class="card margins-card">
-            <h3>Trading Margins</h3>
-            <div class="margins-info">
-              <div class="margin-item">
-                <span>Entry Price:</span>
-                <strong id="entryPrice">$0.00</strong>
-              </div>
-              <div class="margin-item">
-                <span>Stop Loss:</span>
-                <strong id="stopLoss" class="loss">$0.00</strong>
-              </div>
-              <div class="margin-item">
-                <span>Take Profit:</span>
-                <strong id="takeProfit" class="profit">$0.00</strong>
+              <div class="w-full bg-gray-700 rounded-full h-2">
+                <div id="confidenceBar" class="bg-gradient-to-r from-cyan-500 to-green-500 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
               </div>
             </div>
           </div>
         </div>
 
-        <div class="right-panel">
-          <!-- Chart -->
-          <div class="card chart-container">
-            <h3>Price & Prediction Chart</h3>
+        <!-- Margins Card -->
+        <div class="glass rounded-xl p-6 card-hover">
+          <h3 class="text-lg font-bold text-cyan-400 mb-4">Trading Margins</h3>
+          <div class="space-y-3">
+            <div class="flex justify-between items-center p-3 bg-blue-900/10 rounded-lg">
+              <span class="text-sm text-gray-400">Entry Price</span>
+              <strong id="entryPrice" class="text-cyan-400">$0.00</strong>
+            </div>
+            <div class="flex justify-between items-center p-3 bg-red-900/10 rounded-lg">
+              <span class="text-sm text-gray-400">Stop Loss</span>
+              <strong id="stopLoss" class="text-red-400">$0.00</strong>
+            </div>
+            <div class="flex justify-between items-center p-3 bg-green-900/10 rounded-lg">
+              <span class="text-sm text-gray-400">Take Profit</span>
+              <strong id="takeProfit" class="text-green-400">$0.00</strong>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Right Column - Chart -->
+      <div class="lg:col-span-2">
+        <div class="glass rounded-xl p-6 card-hover h-full">
+          <h3 class="text-lg font-bold text-cyan-400 mb-4">Price & Prediction Chart</h3>
+          <div class="relative h-96">
             <canvas id="predictionChart"></canvas>
           </div>
         </div>
-      </section>
+      </div>
 
-      <!-- Indicators -->
-      <section class="indicators">
-        <div class="card indicator-card">
-          <h4>RSI</h4>
-          <div class="indicator-value" id="rsiValue">50</div>
-          <small>Overbought > 70 | Oversold < 30</small>
-        </div>
-        <div class="card indicator-card">
-          <h4>MACD</h4>
-          <div class="indicator-value" id="macdValue">0</div>
-          <small>Positive = Bullish | Negative = Bearish</small>
-        </div>
-        <div class="card indicator-card">
-          <h4>Bollinger Bands</h4>
-          <div class="indicator-value" id="bbandsValue">0</div>
-          <small>Volatility Measure</small>
-        </div>
-        <div class="card indicator-card">
-          <h4>ATR</h4>
-          <div class="indicator-value" id="atrValue">0</div>
-          <small>Average True Range</small>
-        </div>
-      </section>
+    </div>
 
-      <!-- Predictions Table -->
-      <section class="predictions">
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-          <h3>Price Predictions (Next 5 Periods)</h3>
-          <button onclick="clearHistory()" class="btn-clear" style="padding: 8px 15px; font-size: 0.9em;">Clear History</button>
-        </div>
-        <table id="predictionsTable" class="predictions-table">
-          <thead>
-            <tr>
-              <th>Period</th>
-              <th>Predicted Price</th>
-              <th>Change %</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr><td colspan="3">Run prediction to see forecasts</td></tr>
+    <!-- Indicators Grid -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+      <div class="glass rounded-xl p-6 card-hover text-center">
+        <h4 class="text-sm font-semibold text-gray-400 mb-2">RSI</h4>
+        <div id="rsiValue" class="text-3xl font-bold text-cyan-400">50</div>
+        <p class="text-xs text-gray-500 mt-2">Overbought > 70</p>
+      </div>
+      <div class="glass rounded-xl p-6 card-hover text-center">
+        <h4 class="text-sm font-semibold text-gray-400 mb-2">MACD</h4>
+        <div id="macdValue" class="text-3xl font-bold text-cyan-400">0</div>
+        <p class="text-xs text-gray-500 mt-2">Trend Signal</p>
+      </div>
+      <div class="glass rounded-xl p-6 card-hover text-center">
+        <h4 class="text-sm font-semibold text-gray-400 mb-2">BB Mid</h4>
+        <div id="bbandsValue" class="text-3xl font-bold text-cyan-400">0</div>
+        <p class="text-xs text-gray-500 mt-2">Volatility</p>
+      </div>
+      <div class="glass rounded-xl p-6 card-hover text-center">
+        <h4 class="text-sm font-semibold text-gray-400 mb-2">ATR</h4>
+        <div id="atrValue" class="text-3xl font-bold text-cyan-400">0</div>
+        <p class="text-xs text-gray-500 mt-2">Range</p>
+      </div>
+    </div>
+
+    <!-- Predictions Table -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+      <div class="glass rounded-xl p-6 card-hover">
+        <h3 class="text-lg font-bold text-cyan-400 mb-4">Next 5 Predictions</h3>
+        <div class="space-y-2">
+          <div class="grid grid-cols-3 gap-2 text-xs font-semibold text-gray-400 pb-2 border-b border-cyan-900/30">
+            <div>Period</div>
+            <div>Price</div>
+            <div>Change</div>
+          </div>
+          <tbody id="predictionsTable">
+            <div class="text-center text-gray-400 py-8">Run prediction to see forecasts</div>
           </tbody>
-        </table>
-      </section>
+        </div>
+      </div>
 
-      <!-- Prediction History -->
-      <section class="predictions">
-        <h3>Recent Predictions</h3>
-        <div id="historyContainer" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 15px; max-height: 400px; overflow-y: auto;">
-          <div style="text-align: center; color: #aaa; padding: 20px; grid-column: 1/-1;">
-            No predictions yet. Make your first prediction!
+      <!-- History Summary -->
+      <div class="glass rounded-xl p-6 card-hover">
+        <h3 class="text-lg font-bold text-cyan-400 mb-4">Quick Stats</h3>
+        <div class="space-y-3">
+          <div class="flex justify-between p-3 bg-blue-900/10 rounded-lg">
+            <span class="text-gray-400">Total Predictions</span>
+            <span id="totalPredictions" class="font-semibold text-blue-400">0</span>
+          </div>
+          <div class="flex justify-between p-3 bg-green-900/10 rounded-lg">
+            <span class="text-gray-400">Buy Signals</span>
+            <span id="buyCount" class="font-semibold text-green-400">0</span>
+          </div>
+          <div class="flex justify-between p-3 bg-red-900/10 rounded-lg">
+            <span class="text-gray-400">Sell Signals</span>
+            <span id="sellCount" class="font-semibold text-red-400">0</span>
+          </div>
+          <div class="flex justify-between p-3 bg-yellow-900/10 rounded-lg">
+            <span class="text-gray-400">Hold Signals</span>
+            <span id="holdCount" class="font-semibold text-yellow-400">0</span>
           </div>
         </div>
-      </section>
-    </main>
+      </div>
+    </div>
+
+    <!-- Recent Predictions -->
+    <div class="glass rounded-xl p-6 card-hover">
+      <div class="flex items-center justify-between mb-6">
+        <h3 class="text-lg font-bold text-cyan-400">Recent Predictions History</h3>
+        <button onclick="clearHistory()" class="px-4 py-2 bg-red-600/50 hover:bg-red-600 text-red-200 text-sm rounded-lg transition">
+          Clear History
+        </button>
+      </div>
+      <div id="historyContainer" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-h-96 overflow-y-auto">
+        <div class="col-span-full text-center text-gray-400 py-8">
+          No predictions yet. Make your first prediction!
+        </div>
+      </div>
+    </div>
+
   </div>
 
   <script src="dashboard.js"></script>

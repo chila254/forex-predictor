@@ -27,12 +27,10 @@ function setupEventListeners() {
 }
 
 /**
- * Show/hide loading state on predict button
+ * Loading state management
  */
 function setLoading(isLoading) {
   const btn = document.getElementById('predictBtn');
-  const original = btn.textContent;
-  
   if (isLoading) {
     btn.disabled = true;
     btn.innerHTML = '⏳ Predicting...';
@@ -45,35 +43,23 @@ function setLoading(isLoading) {
 }
 
 /**
- * Show toast notifications (errors, success, info)
+ * Toast notifications
  */
 function showToast(message, type = 'info', duration = 4000) {
   const toast = document.createElement('div');
-  toast.className = `toast toast-${type}`;
-  toast.textContent = message;
   
   const colors = {
-    success: { bg: '#00ff88', text: '#000' },
-    error: { bg: '#ff6666', text: '#fff' },
-    warning: { bg: '#ffc800', text: '#000' },
-    info: { bg: '#00d4ff', text: '#000' }
+    success: { bg: 'bg-green-600', text: 'text-green-100' },
+    error: { bg: 'bg-red-600', text: 'text-red-100' },
+    warning: { bg: 'bg-yellow-600', text: 'text-yellow-100' },
+    info: { bg: 'bg-blue-600', text: 'text-blue-100' }
   };
   
   const color = colors[type] || colors.info;
   
-  toast.style.cssText = `
-    position: fixed;
-    top: 20px;
-    right: 20px;
-    background: ${color.bg};
-    color: ${color.text};
-    padding: 15px 20px;
-    border-radius: 5px;
-    z-index: 10000;
-    font-weight: 600;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-    animation: slideIn 0.3s ease-out;
-  `;
+  toast.className = `fixed top-4 right-4 z-50 ${color.bg} ${color.text} px-6 py-3 rounded-lg font-semibold shadow-lg`;
+  toast.textContent = message;
+  toast.style.animation = 'slideIn 0.3s ease-out';
   
   document.body.appendChild(toast);
   
@@ -82,34 +68,6 @@ function showToast(message, type = 'info', duration = 4000) {
     setTimeout(() => toast.remove(), 300);
   }, duration);
 }
-
-/**
- * Add CSS animations
- */
-const style = document.createElement('style');
-style.textContent = `
-  @keyframes slideIn {
-    from {
-      transform: translateX(400px);
-      opacity: 0;
-    }
-    to {
-      transform: translateX(0);
-      opacity: 1;
-    }
-  }
-  @keyframes slideOut {
-    from {
-      transform: translateX(0);
-      opacity: 1;
-    }
-    to {
-      transform: translateX(400px);
-      opacity: 0;
-    }
-  }
-`;
-document.head.appendChild(style);
 
 function updateAssetName() {
   const names = {
@@ -126,9 +84,7 @@ async function loadInitialData() {
     setLoading(true);
     const response = await fetch(`/api/prices/${currentAsset}`);
     
-    if (!response.ok) {
-      throw new Error(`API error: ${response.status}`);
-    }
+    if (!response.ok) throw new Error(`API error: ${response.status}`);
     
     const data = await response.json();
     
@@ -140,7 +96,7 @@ async function loadInitialData() {
     updatePriceDisplay(data);
   } catch (error) {
     console.error('Error loading data:', error);
-    showToast('Failed to load price data. Check your connection.', 'error');
+    showToast('Failed to load price data', 'error');
   } finally {
     setLoading(false);
   }
@@ -152,7 +108,9 @@ function updatePriceDisplay(data) {
   const priceChangeEl = document.getElementById('priceChange');
   const change = ((data.price - data.close) / data.close) * 100;
   priceChangeEl.textContent = `${change > 0 ? '+' : ''}${change.toFixed(2)}%`;
-  priceChangeEl.className = change > 0 ? 'price-change' : 'price-change negative';
+  priceChangeEl.className = change > 0 
+    ? 'px-3 py-1 bg-green-500/20 text-green-400 rounded-full text-sm font-semibold'
+    : 'px-3 py-1 bg-red-500/20 text-red-400 rounded-full text-sm font-semibold';
 
   document.getElementById('dayHigh').textContent = parseFloat(data.high).toFixed(2);
   document.getElementById('dayLow').textContent = parseFloat(data.low).toFixed(2);
@@ -169,9 +127,7 @@ async function getPrediction() {
       body: JSON.stringify({ model: currentModel })
     });
     
-    if (!response.ok) {
-      throw new Error(`API error: ${response.status}`);
-    }
+    if (!response.ok) throw new Error(`API error: ${response.status}`);
     
     const prediction = await response.json();
     
@@ -180,28 +136,19 @@ async function getPrediction() {
       return;
     }
 
-    // Update UI
     updateSignalDisplay(prediction);
     updateIndicators(prediction.indicators);
     updatePredictionsTable(prediction.predictions, prediction.currentPrice);
     updateChart(prediction);
-    
-    // Save to history
     savePredictionToHistory(prediction);
     
-    // Show success
     showToast(
-      `${prediction.signal.action} signal generated (${Math.round(prediction.signal.confidence * 100)}% confidence)`,
+      `${prediction.signal.action} signal (${Math.round(prediction.signal.confidence * 100)}% confidence)`,
       'success'
     );
-    
-    // Log response time
-    if (prediction.responseTime) {
-      console.log(`Prediction generated in ${prediction.responseTime}ms`);
-    }
   } catch (error) {
     console.error('Error getting prediction:', error);
-    showToast(error.message || 'Failed to generate prediction. Try again.', 'error');
+    showToast(error.message || 'Failed to generate prediction', 'error');
   } finally {
     setLoading(false);
   }
@@ -214,11 +161,21 @@ function updateSignalDisplay(prediction) {
   const confidencePercent = document.getElementById('confidencePercent');
 
   const signal = prediction.signal;
-  
-  signalBox.className = 'signal-box ' + signal.action.toLowerCase();
-  signalAction.textContent = signal.action;
-  
   const confPercent = Math.round(signal.confidence * 100);
+  
+  signalBox.className = `rounded-lg p-6 text-center space-y-3 border-2 ${
+    signal.action === 'BUY' ? 'bg-green-900/20 border-green-500' :
+    signal.action === 'SELL' ? 'bg-red-900/20 border-red-500' :
+    'bg-yellow-900/20 border-yellow-500'
+  }`;
+  
+  signalAction.textContent = signal.action;
+  signalAction.className = `text-4xl font-bold ${
+    signal.action === 'BUY' ? 'text-green-400' :
+    signal.action === 'SELL' ? 'text-red-400' :
+    'text-yellow-400'
+  }`;
+  
   confidenceBar.style.width = confPercent + '%';
   confidencePercent.textContent = confPercent + '%';
 
@@ -235,19 +192,21 @@ function updateIndicators(indicators) {
 }
 
 function updatePredictionsTable(predictions, currentPrice) {
-  const tbody = document.querySelector('.predictions-table tbody');
-  tbody.innerHTML = '';
-
-  predictions.forEach((price, index) => {
+  const tbody = document.getElementById('predictionsTable');
+  const rows = predictions.map((price, index) => {
     const change = ((price - currentPrice) / currentPrice) * 100;
-    const row = document.createElement('tr');
-    row.innerHTML = `
-      <td>Period ${index + 1}</td>
-      <td>$${parseFloat(price).toFixed(2)}</td>
-      <td>${change > 0 ? '+' : ''}${change.toFixed(2)}%</td>
+    const changeColor = change > 0 ? 'text-green-400' : 'text-red-400';
+    
+    return `
+      <div class="grid grid-cols-3 gap-2 py-2 border-b border-cyan-900/20 hover:bg-cyan-900/10 px-2 rounded">
+        <div class="text-sm">Period ${index + 1}</div>
+        <div class="text-sm">$${parseFloat(price).toFixed(2)}</div>
+        <div class="text-sm font-semibold ${changeColor}">${change > 0 ? '+' : ''}${change.toFixed(2)}%</div>
+      </div>
     `;
-    tbody.appendChild(row);
-  });
+  }).join('');
+  
+  tbody.innerHTML = rows || '<div class="text-center text-gray-400 py-4">No predictions</div>';
 }
 
 function initChart() {
@@ -264,7 +223,9 @@ function initChart() {
           backgroundColor: 'rgba(0, 212, 255, 0.1)',
           borderWidth: 2,
           tension: 0.4,
-          fill: true
+          fill: true,
+          pointRadius: 0,
+          pointHoverRadius: 6
         },
         {
           label: 'Predicted Price',
@@ -274,7 +235,9 @@ function initChart() {
           borderWidth: 2,
           borderDash: [5, 5],
           tension: 0.4,
-          fill: true
+          fill: false,
+          pointRadius: 0,
+          pointHoverRadius: 6
         }
       ]
     },
@@ -283,17 +246,17 @@ function initChart() {
       maintainAspectRatio: false,
       plugins: {
         legend: {
-          labels: { color: '#fff' }
+          labels: { color: '#888', font: { size: 12 } }
         }
       },
       scales: {
         y: {
-          grid: { color: 'rgba(0, 212, 255, 0.1)' },
-          ticks: { color: '#888' }
+          grid: { color: 'rgba(0, 212, 255, 0.05)' },
+          ticks: { color: '#888', font: { size: 11 } }
         },
         x: {
-          grid: { color: 'rgba(0, 212, 255, 0.1)' },
-          ticks: { color: '#888' }
+          grid: { color: 'rgba(0, 212, 255, 0.05)' },
+          ticks: { color: '#888', font: { size: 11 } }
         }
       }
     }
@@ -301,31 +264,23 @@ function initChart() {
 }
 
 function updateChart(prediction) {
-  // Mock historical data
   const historical = [];
   for (let i = 20; i > 0; i--) {
     historical.push(prediction.currentPrice - Math.random() * 5);
   }
 
   const labels = [];
-  for (let i = 20; i > 0; i--) {
-    labels.push(`-${i}`);
-  }
-  for (let i = 1; i <= 5; i++) {
-    labels.push(`+${i}`);
-  }
+  for (let i = 20; i > 0; i--) labels.push(`-${i}`);
+  for (let i = 1; i <= 5; i++) labels.push(`+${i}`);
 
   chart.data.labels = labels;
   chart.data.datasets[0].data = [...historical, prediction.currentPrice];
-  chart.data.datasets[1].data = [
-    ...Array(21).fill(null),
-    ...prediction.predictions
-  ];
+  chart.data.datasets[1].data = [...Array(21).fill(null), ...prediction.predictions];
   chart.update();
 }
 
 /**
- * Prediction History Management
+ * Prediction History
  */
 function savePredictionToHistory(prediction) {
   const entry = {
@@ -336,18 +291,12 @@ function savePredictionToHistory(prediction) {
     signal: prediction.signal.action,
     confidence: prediction.signal.confidence,
     currentPrice: prediction.currentPrice,
-    predicted: prediction.predictions[0],
-    indicators: prediction.indicators
+    predicted: prediction.predictions[0]
   };
   
-  predictionHistory.unshift(entry); // Add to beginning
+  predictionHistory.unshift(entry);
+  if (predictionHistory.length > 50) predictionHistory.pop();
   
-  // Keep only last 50 predictions
-  if (predictionHistory.length > 50) {
-    predictionHistory.pop();
-  }
-  
-  // Save to localStorage
   try {
     localStorage.setItem('predictionHistory', JSON.stringify(predictionHistory));
   } catch (err) {
@@ -373,60 +322,70 @@ function updateHistoryDisplay() {
   const container = document.getElementById('historyContainer');
   
   if (predictionHistory.length === 0) {
-    container.innerHTML = `
-      <div style="text-align: center; color: #aaa; padding: 20px; grid-column: 1/-1;">
-        No predictions yet. Make your first prediction!
-      </div>
-    `;
+    container.innerHTML = '<div class="col-span-full text-center text-gray-400 py-8">No predictions yet</div>';
+    updateStats();
     return;
   }
   
-  const recent = predictionHistory.slice(0, 10);
-  const html = recent.map(entry => {
+  const html = predictionHistory.slice(0, 12).map(entry => {
     const time = new Date(entry.timestamp).toLocaleTimeString();
     const change = ((entry.predicted - entry.currentPrice) / entry.currentPrice * 100).toFixed(2);
-    const signalColor = entry.signal === 'BUY' ? '#00ff88' : entry.signal === 'SELL' ? '#ff6666' : '#ffc800';
+    const signalBg = entry.signal === 'BUY' ? 'bg-green-900/20 border-green-500' : 
+                     entry.signal === 'SELL' ? 'bg-red-900/20 border-red-500' : 
+                     'bg-yellow-900/20 border-yellow-500';
+    const signalColor = entry.signal === 'BUY' ? 'text-green-400' : 
+                        entry.signal === 'SELL' ? 'text-red-400' : 
+                        'text-yellow-400';
     
     return `
-      <div style="
-        background: rgba(0, 212, 255, 0.05);
-        border: 1px solid ${signalColor};
-        border-radius: 8px;
-        padding: 15px;
-        font-size: 0.9em;
-      ">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-          <strong style="color: ${signalColor};">${entry.signal}</strong>
-          <small style="color: #888;">${time}</small>
+      <div class="glass rounded-lg p-4 border-2 ${signalBg}">
+        <div class="flex justify-between items-start mb-2">
+          <span class="font-bold ${signalColor}">${entry.signal}</span>
+          <span class="text-xs text-gray-400">${time}</span>
         </div>
-        <div style="margin: 5px 0; color: #aaa;">
-          <small>${entry.asset} (${entry.model})</small>
-        </div>
-        <div style="margin: 5px 0;">
-          <small>Price: $${entry.currentPrice.toFixed(2)}</small><br>
-          <small>Predicted: $${entry.predicted.toFixed(2)}</small><br>
-          <small style="color: ${change > 0 ? '#00ff88' : '#ff6666'};">
-            ${change > 0 ? '+' : ''}${change}%
-          </small>
-        </div>
-        <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(0, 212, 255, 0.2);">
-          <small style="color: ${signalColor};">
-            Confidence: ${Math.round(entry.confidence * 100)}%
-          </small>
+        <div class="text-xs text-gray-400 mb-2">${entry.asset} • ${entry.model}</div>
+        <div class="space-y-1 text-xs">
+          <div class="flex justify-between">
+            <span class="text-gray-400">Price:</span>
+            <span class="text-gray-200">$${entry.currentPrice.toFixed(2)}</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-gray-400">Predicted:</span>
+            <span class="text-gray-200">$${entry.predicted.toFixed(2)}</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-gray-400">Change:</span>
+            <span class="font-semibold" style="color: ${change > 0 ? '#00ff88' : '#ff6666'}">${change > 0 ? '+' : ''}${change}%</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-gray-400">Confidence:</span>
+            <span class="${signalColor}">${Math.round(entry.confidence * 100)}%</span>
+          </div>
         </div>
       </div>
     `;
   }).join('');
   
   container.innerHTML = html;
+  updateStats();
+}
+
+function updateStats() {
+  document.getElementById('totalPredictions').textContent = predictionHistory.length;
+  const buyCount = predictionHistory.filter(p => p.signal === 'BUY').length;
+  const sellCount = predictionHistory.filter(p => p.signal === 'SELL').length;
+  const holdCount = predictionHistory.filter(p => p.signal === 'HOLD').length;
   
-  console.log(`Recent predictions (${predictionHistory.length} total)`);
+  document.getElementById('buyCount').textContent = buyCount;
+  document.getElementById('sellCount').textContent = sellCount;
+  document.getElementById('holdCount').textContent = holdCount;
 }
 
 function clearHistory() {
-  if (confirm('Are you sure? This will delete all prediction history.')) {
+  if (confirm('Delete all prediction history?')) {
     predictionHistory = [];
     localStorage.removeItem('predictionHistory');
-    showToast('Prediction history cleared', 'info');
+    updateHistoryDisplay();
+    showToast('History cleared', 'info');
   }
 }
