@@ -1,4 +1,3 @@
-const socket = io();
 let chart = null;
 let currentAsset = 'XAUUSD';
 let currentModel = 'ensemble';
@@ -23,18 +22,6 @@ function setupEventListeners() {
 
   document.getElementById('predictBtn').addEventListener('click', getPrediction);
   document.getElementById('refreshBtn').addEventListener('click', loadInitialData);
-
-  // Subscribe to real-time updates
-  socket.on('connect', () => {
-    console.log('Connected to server');
-    socket.emit('subscribe', currentAsset);
-  });
-
-  socket.on('priceUpdate', (data) => {
-    if (data.symbol === currentAsset) {
-      updatePriceDisplay(data);
-    }
-  });
 }
 
 function updateAssetName() {
