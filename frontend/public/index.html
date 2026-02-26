@@ -132,7 +132,10 @@
 
       <!-- Predictions Table -->
       <section class="predictions">
-        <h3>Price Predictions (Next 5 Periods)</h3>
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <h3>Price Predictions (Next 5 Periods)</h3>
+          <button onclick="clearHistory()" class="btn-clear" style="padding: 8px 15px; font-size: 0.9em;">Clear History</button>
+        </div>
         <table id="predictionsTable" class="predictions-table">
           <thead>
             <tr>
@@ -145,6 +148,16 @@
             <tr><td colspan="3">Run prediction to see forecasts</td></tr>
           </tbody>
         </table>
+      </section>
+
+      <!-- Prediction History -->
+      <section class="predictions">
+        <h3>Recent Predictions</h3>
+        <div id="historyContainer" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 15px; max-height: 400px; overflow-y: auto;">
+          <div style="text-align: center; color: #aaa; padding: 20px; grid-column: 1/-1;">
+            No predictions yet. Make your first prediction!
+          </div>
+        </div>
       </section>
     </main>
   </div>

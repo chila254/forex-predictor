@@ -4,10 +4,29 @@ const path = require('path');
 require('dotenv').config();
 
 const app = express();
+const logger = require('./utils/logger');
 
-// Middleware
+// Startup logging
+logger.info('Forex Predictor server starting...');
+logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
+
+// Middleware - CORS
 app.use(cors());
+
+// Middleware - JSON parsing
 app.use(express.json());
+
+// Middleware - Request logging & performance tracking
+app.use((req, res, next) => {
+  const start = Date.now();
+  
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    logger.logRequestResponse(req.method, req.path, res.statusCode, duration);
+  });
+  
+  next();
+});
 
 // Serve static files from frontend/public
 app.use(express.static(path.join(__dirname, '../frontend/public')));
@@ -15,6 +34,11 @@ app.use(express.static(path.join(__dirname, '../frontend/public')));
 // Import routes
 const priceRoutes = require('./routes/prices');
 const predictionRoutes = require('./routes/predictions');
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
 
 // API Routes
 app.use('/api/prices', priceRoutes);
@@ -25,9 +49,25 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, '../frontend/public/index.html'));
 });
 
-// Serve dashboard for any non-API routes
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, '../frontend/public/index.html'));
+// 404 handler
+app.use((req, res) => {
+  logger.warn(`404 Not Found: ${req.method} ${req.path}`);
+  res.status(404).json({ 
+    success: false,
+    error: 'Not found' 
+  });
+});
+
+// Error handler
+app.use((err, req, res, next) => {
+  logger.error(`Unhandled error: ${err.message}`, err);
+  
+  res.status(err.status || 500).json({ 
+    success: false,
+    error: process.env.NODE_ENV === 'development' 
+      ? err.message 
+      : 'An error occurred'
+  });
 });
 
 // For local development with HTTP server

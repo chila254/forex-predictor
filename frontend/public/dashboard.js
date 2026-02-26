@@ -1,12 +1,14 @@
 let chart = null;
 let currentAsset = 'XAUUSD';
 let currentModel = 'ensemble';
+let predictionHistory = [];
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
   setupEventListeners();
   initChart();
   loadInitialData();
+  loadPredictionHistory();
 });
 
 function setupEventListeners() {
@@ -24,6 +26,91 @@ function setupEventListeners() {
   document.getElementById('refreshBtn').addEventListener('click', loadInitialData);
 }
 
+/**
+ * Show/hide loading state on predict button
+ */
+function setLoading(isLoading) {
+  const btn = document.getElementById('predictBtn');
+  const original = btn.textContent;
+  
+  if (isLoading) {
+    btn.disabled = true;
+    btn.innerHTML = '⏳ Predicting...';
+    btn.style.opacity = '0.6';
+  } else {
+    btn.disabled = false;
+    btn.innerHTML = '🔮 Predict Now';
+    btn.style.opacity = '1';
+  }
+}
+
+/**
+ * Show toast notifications (errors, success, info)
+ */
+function showToast(message, type = 'info', duration = 4000) {
+  const toast = document.createElement('div');
+  toast.className = `toast toast-${type}`;
+  toast.textContent = message;
+  
+  const colors = {
+    success: { bg: '#00ff88', text: '#000' },
+    error: { bg: '#ff6666', text: '#fff' },
+    warning: { bg: '#ffc800', text: '#000' },
+    info: { bg: '#00d4ff', text: '#000' }
+  };
+  
+  const color = colors[type] || colors.info;
+  
+  toast.style.cssText = `
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    background: ${color.bg};
+    color: ${color.text};
+    padding: 15px 20px;
+    border-radius: 5px;
+    z-index: 10000;
+    font-weight: 600;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    animation: slideIn 0.3s ease-out;
+  `;
+  
+  document.body.appendChild(toast);
+  
+  setTimeout(() => {
+    toast.style.animation = 'slideOut 0.3s ease-out';
+    setTimeout(() => toast.remove(), 300);
+  }, duration);
+}
+
+/**
+ * Add CSS animations
+ */
+const style = document.createElement('style');
+style.textContent = `
+  @keyframes slideIn {
+    from {
+      transform: translateX(400px);
+      opacity: 0;
+    }
+    to {
+      transform: translateX(0);
+      opacity: 1;
+    }
+  }
+  @keyframes slideOut {
+    from {
+      transform: translateX(0);
+      opacity: 1;
+    }
+    to {
+      transform: translateX(400px);
+      opacity: 0;
+    }
+  }
+`;
+document.head.appendChild(style);
+
 function updateAssetName() {
   const names = {
     XAUUSD: 'Gold (XAU/USD)',
@@ -36,11 +123,26 @@ function updateAssetName() {
 
 async function loadInitialData() {
   try {
+    setLoading(true);
     const response = await fetch(`/api/prices/${currentAsset}`);
+    
+    if (!response.ok) {
+      throw new Error(`API error: ${response.status}`);
+    }
+    
     const data = await response.json();
+    
+    if (!data.success) {
+      showToast(data.error || 'Failed to load price data', 'error');
+      return;
+    }
+    
     updatePriceDisplay(data);
   } catch (error) {
     console.error('Error loading data:', error);
+    showToast('Failed to load price data. Check your connection.', 'error');
+  } finally {
+    setLoading(false);
   }
 }
 
@@ -58,25 +160,50 @@ function updatePriceDisplay(data) {
 }
 
 async function getPrediction() {
+  setLoading(true);
+  
   try {
     const response = await fetch(`/api/predictions/${currentAsset}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ model: currentModel })
     });
+    
+    if (!response.ok) {
+      throw new Error(`API error: ${response.status}`);
+    }
+    
     const prediction = await response.json();
     
-    if (prediction.error) {
-      alert('Error: ' + prediction.error);
+    if (!prediction.success) {
+      showToast(prediction.error || 'Failed to generate prediction', 'error');
       return;
     }
 
+    // Update UI
     updateSignalDisplay(prediction);
     updateIndicators(prediction.indicators);
     updatePredictionsTable(prediction.predictions, prediction.currentPrice);
     updateChart(prediction);
+    
+    // Save to history
+    savePredictionToHistory(prediction);
+    
+    // Show success
+    showToast(
+      `${prediction.signal.action} signal generated (${Math.round(prediction.signal.confidence * 100)}% confidence)`,
+      'success'
+    );
+    
+    // Log response time
+    if (prediction.responseTime) {
+      console.log(`Prediction generated in ${prediction.responseTime}ms`);
+    }
   } catch (error) {
     console.error('Error getting prediction:', error);
+    showToast(error.message || 'Failed to generate prediction. Try again.', 'error');
+  } finally {
+    setLoading(false);
   }
 }
 
@@ -195,4 +322,111 @@ function updateChart(prediction) {
     ...prediction.predictions
   ];
   chart.update();
+}
+
+/**
+ * Prediction History Management
+ */
+function savePredictionToHistory(prediction) {
+  const entry = {
+    id: Date.now(),
+    timestamp: new Date().toISOString(),
+    asset: currentAsset,
+    model: currentModel,
+    signal: prediction.signal.action,
+    confidence: prediction.signal.confidence,
+    currentPrice: prediction.currentPrice,
+    predicted: prediction.predictions[0],
+    indicators: prediction.indicators
+  };
+  
+  predictionHistory.unshift(entry); // Add to beginning
+  
+  // Keep only last 50 predictions
+  if (predictionHistory.length > 50) {
+    predictionHistory.pop();
+  }
+  
+  // Save to localStorage
+  try {
+    localStorage.setItem('predictionHistory', JSON.stringify(predictionHistory));
+  } catch (err) {
+    console.warn('Failed to save to localStorage:', err);
+  }
+  
+  updateHistoryDisplay();
+}
+
+function loadPredictionHistory() {
+  try {
+    const stored = localStorage.getItem('predictionHistory');
+    if (stored) {
+      predictionHistory = JSON.parse(stored);
+      updateHistoryDisplay();
+    }
+  } catch (err) {
+    console.warn('Failed to load history:', err);
+  }
+}
+
+function updateHistoryDisplay() {
+  const container = document.getElementById('historyContainer');
+  
+  if (predictionHistory.length === 0) {
+    container.innerHTML = `
+      <div style="text-align: center; color: #aaa; padding: 20px; grid-column: 1/-1;">
+        No predictions yet. Make your first prediction!
+      </div>
+    `;
+    return;
+  }
+  
+  const recent = predictionHistory.slice(0, 10);
+  const html = recent.map(entry => {
+    const time = new Date(entry.timestamp).toLocaleTimeString();
+    const change = ((entry.predicted - entry.currentPrice) / entry.currentPrice * 100).toFixed(2);
+    const signalColor = entry.signal === 'BUY' ? '#00ff88' : entry.signal === 'SELL' ? '#ff6666' : '#ffc800';
+    
+    return `
+      <div style="
+        background: rgba(0, 212, 255, 0.05);
+        border: 1px solid ${signalColor};
+        border-radius: 8px;
+        padding: 15px;
+        font-size: 0.9em;
+      ">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+          <strong style="color: ${signalColor};">${entry.signal}</strong>
+          <small style="color: #888;">${time}</small>
+        </div>
+        <div style="margin: 5px 0; color: #aaa;">
+          <small>${entry.asset} (${entry.model})</small>
+        </div>
+        <div style="margin: 5px 0;">
+          <small>Price: $${entry.currentPrice.toFixed(2)}</small><br>
+          <small>Predicted: $${entry.predicted.toFixed(2)}</small><br>
+          <small style="color: ${change > 0 ? '#00ff88' : '#ff6666'};">
+            ${change > 0 ? '+' : ''}${change}%
+          </small>
+        </div>
+        <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(0, 212, 255, 0.2);">
+          <small style="color: ${signalColor};">
+            Confidence: ${Math.round(entry.confidence * 100)}%
+          </small>
+        </div>
+      </div>
+    `;
+  }).join('');
+  
+  container.innerHTML = html;
+  
+  console.log(`Recent predictions (${predictionHistory.length} total)`);
+}
+
+function clearHistory() {
+  if (confirm('Are you sure? This will delete all prediction history.')) {
+    predictionHistory = [];
+    localStorage.removeItem('predictionHistory');
+    showToast('Prediction history cleared', 'info');
+  }
 }

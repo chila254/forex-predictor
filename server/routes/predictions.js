@@ -2,38 +2,111 @@ const express = require('express');
 const router = express.Router();
 const dataFetcher = require('../services/dataFetcher');
 const predictionEngine = require('../services/predictionEngine');
+const Validators = require('../utils/validators');
+const logger = require('../utils/logger');
 
-// Get prediction for a symbol
+/**
+ * POST /api/predictions/:symbol
+ * Generate prediction for a symbol
+ */
 router.post('/:symbol', async (req, res) => {
+  const startTime = Date.now();
+  
   try {
     const { symbol } = req.params;
     const { model = 'ensemble' } = req.body;
 
+    // Validate inputs
+    try {
+      Validators.validateSymbol(symbol);
+      Validators.validateModel(model);
+    } catch (validationError) {
+      const duration = Date.now() - startTime;
+      logger.warn(`Invalid prediction request: ${validationError.message}`);
+      return res.status(400).json({ 
+        success: false,
+        error: validationError.message 
+      });
+    }
+
+    logger.info(`Generating ${model} prediction for ${symbol}`);
+
     // Get historical data for prediction
     const historicalData = await dataFetcher.getHistoricalData(symbol);
     
+    // Validate data
+    try {
+      Validators.validatePriceData(historicalData);
+    } catch (dataError) {
+      const duration = Date.now() - startTime;
+      logger.error(`Invalid price data: ${dataError.message}`);
+      return res.status(400).json({ 
+        success: false,
+        error: dataError.message 
+      });
+    }
+
     // Run prediction
     const prediction = predictionEngine.predict(historicalData, model);
     
+    // Validate prediction
+    try {
+      if (prediction.error) throw new Error(prediction.error);
+      Validators.validatePrediction(prediction);
+    } catch (predError) {
+      const duration = Date.now() - startTime;
+      logger.error(`Invalid prediction output: ${predError.message}`);
+      return res.status(500).json({ 
+        success: false,
+        error: 'Failed to generate valid prediction' 
+      });
+    }
+
+    const duration = Date.now() - startTime;
+    logger.info(`Prediction generated for ${symbol} in ${duration}ms - Signal: ${prediction.signal.action}`);
+    
     res.json({
+      success: true,
       symbol,
       model,
+      responseTime: duration,
       ...prediction
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    const duration = Date.now() - startTime;
+    logger.error(`Prediction error for ${req.params.symbol}: ${error.message}`, error);
+    
+    res.status(500).json({ 
+      success: false,
+      error: process.env.NODE_ENV === 'development' 
+        ? error.message 
+        : 'Failed to generate prediction. Please try again.' 
+    });
   }
 });
 
-// Get all available models
+/**
+ * GET /api/predictions/models
+ * Get all available models
+ */
 router.get('/models', (req, res) => {
+  logger.info('Fetching available models');
+  
   res.json({
+    success: true,
     models: ['linear', 'exponential', 'arima', 'ensemble'],
     descriptions: {
-      linear: 'Simple linear regression',
-      exponential: 'Exponential trend fitting',
-      arima: 'ARIMA(1,1,0) time series model',
-      ensemble: 'Weighted ensemble of all models'
+      linear: 'Simple linear regression - best for trending markets',
+      exponential: 'Exponential trend fitting - good for accelerating moves',
+      arima: 'ARIMA(1,1,0) time series model - handles mean reversion',
+      ensemble: 'Weighted ensemble (40% linear, 30% exp, 30% ARIMA) - most robust'
+    },
+    recommendations: {
+      beginner: 'ensemble',
+      accurate: 'ensemble',
+      fast: 'linear',
+      trending: 'linear',
+      volatile: 'arima'
     }
   });
 });
