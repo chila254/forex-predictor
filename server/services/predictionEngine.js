@@ -4,10 +4,10 @@ class PredictionEngine {
   
   constructor() {
     this.models = {
-      linear: this.linearRegression,
-      exponential: this.exponentialRegression,
-      arima: this.arimaModel,
-      ensemble: this.ensembleModel
+      linear: this.linearRegression.bind(this),
+      exponential: this.exponentialRegression.bind(this),
+      arima: this.arimaModel.bind(this),
+      ensemble: this.ensembleModel.bind(this)
     };
   }
 

@@ -30,15 +30,28 @@ class TechnicalAnalysis {
       changes.push(prices[i] - prices[i - 1]);
     }
 
-    let gains = 0, losses = 0;
+    let avgGain = 0, avgLoss = 0;
     for (let i = 0; i < period; i++) {
-      if (changes[i] > 0) gains += changes[i];
-      else losses -= changes[i];
+      if (changes[i] > 0) avgGain += changes[i];
+      else avgLoss -= changes[i];
+    }
+    avgGain /= period;
+    avgLoss /= period;
+
+    const rsiValues = [];
+    const rs = avgLoss === 0 ? 100 : avgGain / avgLoss;
+    rsiValues.push(100 - (100 / (1 + rs)));
+
+    for (let i = period; i < changes.length; i++) {
+      const gain = changes[i] > 0 ? changes[i] : 0;
+      const loss = changes[i] < 0 ? -changes[i] : 0;
+      avgGain = (avgGain * (period - 1) + gain) / period;
+      avgLoss = (avgLoss * (period - 1) + loss) / period;
+      const rs2 = avgLoss === 0 ? 100 : avgGain / avgLoss;
+      rsiValues.push(100 - (100 / (1 + rs2)));
     }
 
-    const rs = (gains / period) / (losses / period);
-    const rsi = 100 - (100 / (1 + rs));
-    return rsi;
+    return rsiValues;
   }
 
   // MACD
