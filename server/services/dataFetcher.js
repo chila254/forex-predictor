@@ -3,12 +3,17 @@ const axios = require('axios');
 const TWELVE_DATA_API_KEY = process.env.TWELVE_DATA_API_KEY;
 const TWELVE_DATA_BASE_URL = 'https://api.twelvedata.com';
 
-// Realistic base prices for each symbol
 const BASE_PRICES = {
   XAUUSD: 2650,
   EURUSD: 1.08,
   GBPUSD: 1.27,
   USDJPY: 150.5,
+  USDCHF: 0.88,
+  AUDUSD: 0.65,
+  USDCAD: 1.37,
+  NZDUSD: 0.57,
+  EURGBP: 0.85,
+  EURJPY: 162.5,
 };
 
 class DataFetcher {
@@ -18,14 +23,14 @@ class DataFetcher {
         throw new Error('TWELVE_DATA_API_KEY is not configured');
       }
 
-      // Twelve Data uses slash-separated forex symbols
       const tdSymbol = symbol === 'XAUUSD' ? 'XAU/USD' : `${symbol.slice(0, 3)}/${symbol.slice(3)}`;
 
       const response = await axios.get(`${TWELVE_DATA_BASE_URL}/quote`, {
         params: {
           symbol: tdSymbol,
           apikey: TWELVE_DATA_API_KEY
-        }
+        },
+        timeout: 10000
       });
 
       const d = response.data;
@@ -41,12 +46,12 @@ class DataFetcher {
         open: parseFloat(d.open),
         close: parseFloat(d.previous_close),
         volume: parseInt(d.volume) || 0,
-        timestamp: new Date()
+        timestamp: new Date(),
+        source: 'live'
       };
     } catch (error) {
       console.error(`Error fetching data for ${symbol}:`, error.message);
 
-      // Return realistic mock data as fallback
       const base = BASE_PRICES[symbol] || 100;
       const variation = base * 0.005;
       const price = base + (Math.random() - 0.5) * 2 * variation;
@@ -58,44 +63,51 @@ class DataFetcher {
         open: base + (Math.random() - 0.5) * variation,
         close: base + (Math.random() - 0.5) * variation,
         volume: Math.floor(Math.random() * 1000000),
-        timestamp: new Date()
+        timestamp: new Date(),
+        source: 'mock',
+        sourceError: error.message
       };
     }
   }
 
   async getHistoricalData(symbol, timeframe = 'D') {
     try {
-      if (TWELVE_DATA_API_KEY) {
-        const tdSymbol = symbol === 'XAUUSD' ? 'XAU/USD' : `${symbol.slice(0, 3)}/${symbol.slice(3)}`;
-        const intervalMap = { '5M': '5min', '15M': '15min', '1H': '1h', '4H': '4h', 'D': '1day' };
+      if (!TWELVE_DATA_API_KEY) {
+        throw new Error('TWELVE_DATA_API_KEY is not configured');
+      }
 
-        const response = await axios.get(`${TWELVE_DATA_BASE_URL}/time_series`, {
-          params: {
-            symbol: tdSymbol,
-            interval: intervalMap[timeframe] || '1day',
-            outputsize: 100,
-            apikey: TWELVE_DATA_API_KEY
-          }
-        });
+      const tdSymbol = symbol === 'XAUUSD' ? 'XAU/USD' : `${symbol.slice(0, 3)}/${symbol.slice(3)}`;
+      const intervalMap = { '5M': '5min', '15M': '15min', '1H': '1h', '4H': '4h', 'D': '1day' };
 
-        const d = response.data;
-        if (d.values && Array.isArray(d.values)) {
-          return d.values.reverse().map(v => ({
+      const response = await axios.get(`${TWELVE_DATA_BASE_URL}/time_series`, {
+        params: {
+          symbol: tdSymbol,
+          interval: intervalMap[timeframe] || '1day',
+          outputsize: 100,
+          apikey: TWELVE_DATA_API_KEY
+        },
+        timeout: 10000
+      });
+
+      const d = response.data;
+      if (d.values && Array.isArray(d.values)) {
+        return {
+          source: 'live',
+          data: d.values.reverse().map(v => ({
             date: new Date(v.datetime),
             open: parseFloat(v.open),
             high: parseFloat(v.high),
             low: parseFloat(v.low),
             close: parseFloat(v.close),
             volume: parseInt(v.volume) || 0
-          }));
-        }
+          }))
+        };
       }
 
-      throw new Error('No API key or API returned no data');
+      throw new Error('API returned no data');
     } catch (error) {
       console.error('Error fetching historical data:', error.message);
 
-      // Realistic mock historical data
       const base = BASE_PRICES[symbol] || 100;
       const variation = base * 0.003;
       const historicalData = [];
@@ -115,7 +127,11 @@ class DataFetcher {
           volume: Math.floor(Math.random() * 1000000)
         });
       }
-      return historicalData;
+      return {
+        source: 'mock',
+        sourceError: error.message,
+        data: historicalData
+      };
     }
   }
 }

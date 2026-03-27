@@ -27,6 +27,8 @@ app.use(express.static(path.join(__dirname, '../frontend/public')));
 // Import routes
 const priceRoutes = require('./routes/prices');
 const predictionRoutes = require('./routes/predictions');
+const newsRoutes = require('./routes/news');
+const alertRoutes = require('./routes/alerts');
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -36,6 +38,8 @@ app.get('/health', (req, res) => {
 // API Routes
 app.use('/api/prices', priceRoutes);
 app.use('/api/predictions', predictionRoutes);
+app.use('/api/news', newsRoutes);
+app.use('/api/alerts', alertRoutes);
 
 // Serve dashboard for root path
 app.get('/', (req, res) => {

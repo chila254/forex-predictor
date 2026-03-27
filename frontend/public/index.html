@@ -6,6 +6,7 @@
   <title>Forex Predictor - Smart Market Analysis</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -52,30 +53,22 @@
       --md-sys-shape-corner-m: 12px;
       --md-sys-shape-corner-s: 8px;
     }
-
     * { box-sizing: border-box; }
-
     body {
       font-family: 'Inter', system-ui, sans-serif;
       background-color: var(--md-sys-color-background);
       color: var(--md-sys-color-on-surface);
       -webkit-font-smoothing: antialiased;
     }
-
-    /* M3 Typography Scale */
     .md-display-small { font-size: 2.25rem; font-weight: 700; line-height: 1.1; letter-spacing: -0.02em; }
     .md-headline-medium { font-size: 1.25rem; font-weight: 600; line-height: 1.3; letter-spacing: -0.01em; }
     .md-headline-small { font-size: 1.125rem; font-weight: 600; line-height: 1.3; }
     .md-title-medium { font-size: 0.9375rem; font-weight: 500; line-height: 1.4; letter-spacing: 0.01em; }
-    .md-title-small { font-size: 0.8125rem; font-weight: 500; line-height: 1.4; letter-spacing: 0.01em; }
-    .md-body-large { font-size: 0.9375rem; font-weight: 400; line-height: 1.5; }
     .md-body-medium { font-size: 0.875rem; font-weight: 400; line-height: 1.5; }
     .md-body-small { font-size: 0.75rem; font-weight: 400; line-height: 1.4; }
     .md-label-large { font-size: 0.875rem; font-weight: 500; line-height: 1.4; letter-spacing: 0.02em; }
     .md-label-medium { font-size: 0.75rem; font-weight: 500; line-height: 1.3; letter-spacing: 0.04em; }
     .md-label-small { font-size: 0.6875rem; font-weight: 500; line-height: 1.3; letter-spacing: 0.04em; }
-
-    /* M3 Card */
     .m3-card {
       background-color: var(--md-sys-color-surface-container);
       border: 1px solid var(--md-sys-color-outline);
@@ -87,172 +80,146 @@
       background-color: var(--md-sys-color-surface-container-high);
       border-color: rgba(148, 163, 184, 0.18);
     }
-
-    /* M3 Filled Tonal Button */
     .m3-btn-tonal {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-      padding: 10px 24px;
-      border: none;
-      border-radius: var(--md-sys-shape-corner-m);
-      font-family: 'Inter', system-ui, sans-serif;
-      font-size: 0.875rem;
-      font-weight: 500;
-      letter-spacing: 0.02em;
-      cursor: pointer;
-      transition: all 200ms ease;
-      white-space: nowrap;
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      padding: 10px 24px; border: none; border-radius: var(--md-sys-shape-corner-m);
+      font-family: 'Inter', system-ui, sans-serif; font-size: 0.875rem; font-weight: 500;
+      letter-spacing: 0.02em; cursor: pointer; transition: all 200ms ease; white-space: nowrap;
     }
-    .m3-btn-primary {
-      background-color: rgba(125, 211, 252, 0.15);
-      color: var(--md-sys-color-primary);
-    }
-    .m3-btn-primary:hover {
-      background-color: rgba(125, 211, 252, 0.22);
-    }
-    .m3-btn-secondary {
-      background-color: rgba(134, 239, 172, 0.15);
-      color: var(--md-sys-color-secondary);
-    }
-    .m3-btn-secondary:hover {
-      background-color: rgba(134, 239, 172, 0.22);
-    }
-    .m3-btn-tertiary {
-      background-color: rgba(252, 165, 165, 0.12);
-      color: var(--md-sys-color-tertiary);
-    }
-    .m3-btn-tertiary:hover {
-      background-color: rgba(252, 165, 165, 0.18);
-    }
-
-    /* M3 Select */
+    .m3-btn-primary { background-color: rgba(125, 211, 252, 0.15); color: var(--md-sys-color-primary); }
+    .m3-btn-primary:hover { background-color: rgba(125, 211, 252, 0.22); }
+    .m3-btn-secondary { background-color: rgba(134, 239, 172, 0.15); color: var(--md-sys-color-secondary); }
+    .m3-btn-secondary:hover { background-color: rgba(134, 239, 172, 0.22); }
+    .m3-btn-tertiary { background-color: rgba(252, 165, 165, 0.12); color: var(--md-sys-color-tertiary); }
+    .m3-btn-tertiary:hover { background-color: rgba(252, 165, 165, 0.18); }
     .m3-select {
-      width: 100%;
-      padding: 12px 16px;
+      width: 100%; padding: 12px 16px;
       background-color: var(--md-sys-color-surface-container-high);
       border: 1px solid var(--md-sys-color-outline);
       border-radius: var(--md-sys-shape-corner-m);
       color: var(--md-sys-color-on-surface);
-      font-family: 'Inter', system-ui, sans-serif;
-      font-size: 0.875rem;
-      font-weight: 400;
-      outline: none;
-      transition: border-color 200ms ease;
-      appearance: none;
+      font-family: 'Inter', system-ui, sans-serif; font-size: 0.875rem; outline: none;
+      transition: border-color 200ms ease; appearance: none;
       background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
-      background-repeat: no-repeat;
-      background-position: right 12px center;
-      padding-right: 40px;
+      background-repeat: no-repeat; background-position: right 12px center; padding-right: 40px;
     }
-    .m3-select:focus {
-      border-color: var(--md-sys-color-primary);
-    }
-    .m3-select option {
-      background-color: var(--md-sys-color-surface-container-high);
-      color: var(--md-sys-color-on-surface);
-    }
-
-    /* M3 Chip-like stat row */
+    .m3-select:focus { border-color: var(--md-sys-color-primary); }
+    .m3-select option { background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface); }
     .m3-stat-row {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 12px 16px;
-      background-color: var(--md-sys-color-surface-container-high);
-      border-radius: var(--md-sys-shape-corner-s);
-      transition: background-color 200ms ease;
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 12px 16px; background-color: var(--md-sys-color-surface-container-high);
+      border-radius: var(--md-sys-shape-corner-s); transition: background-color 200ms ease;
     }
-
-    /* Confidence bar */
-    .m3-progress-track {
-      width: 100%;
-      height: 4px;
-      background-color: var(--md-sys-color-surface-container-high);
-      border-radius: 2px;
-      overflow: hidden;
-    }
-    .m3-progress-fill {
-      height: 100%;
-      background-color: var(--md-sys-color-primary);
-      border-radius: 2px;
-      transition: width 300ms ease;
-    }
-
-    /* Indicator card */
+    .m3-progress-track { width: 100%; height: 4px; background-color: var(--md-sys-color-surface-container-high); border-radius: 2px; overflow: hidden; }
+    .m3-progress-fill { height: 100%; background-color: var(--md-sys-color-primary); border-radius: 2px; transition: width 300ms ease; }
     .m3-indicator-card {
       background-color: var(--md-sys-color-surface-container);
       border: 1px solid var(--md-sys-color-outline);
-      border-radius: var(--md-sys-shape-corner-l);
-      padding: 20px;
-      text-align: center;
+      border-radius: var(--md-sys-shape-corner-l); padding: 20px; text-align: center;
       transition: background-color 200ms ease, border-color 200ms ease;
     }
-    .m3-indicator-card:hover {
-      background-color: var(--md-sys-color-surface-container-high);
-      border-color: rgba(148, 163, 184, 0.18);
-    }
-
-    /* Toast animations */
-    @keyframes slideIn {
-      from { transform: translateX(400px); opacity: 0; }
-      to { transform: translateX(0); opacity: 1; }
-    }
-    @keyframes slideOut {
-      from { transform: translateX(0); opacity: 1; }
-      to { transform: translateX(400px); opacity: 0; }
-    }
-
-    /* History scroll */
+    .m3-indicator-card:hover { background-color: var(--md-sys-color-surface-container-high); border-color: rgba(148, 163, 184, 0.18); }
+    @keyframes slideIn { from { transform: translateX(400px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+    @keyframes slideOut { from { transform: translateX(0); opacity: 1; } to { transform: translateX(400px); opacity: 0; } }
     .m3-scroll::-webkit-scrollbar { width: 6px; }
     .m3-scroll::-webkit-scrollbar-track { background: transparent; }
-    .m3-scroll::-webkit-scrollbar-thumb {
-      background-color: rgba(148, 163, 184, 0.15);
-      border-radius: 3px;
+    .m3-scroll::-webkit-scrollbar-thumb { background-color: rgba(148, 163, 184, 0.15); border-radius: 3px; }
+    .m3-scroll::-webkit-scrollbar-thumb:hover { background-color: rgba(148, 163, 184, 0.25); }
+    .tf-btn {
+      padding: 6px 14px; border-radius: 8px; font-size: 0.75rem; font-weight: 600;
+      border: 1px solid var(--md-sys-color-outline); background: transparent;
+      color: var(--md-sys-color-on-surface-variant); cursor: pointer; transition: all 200ms ease;
     }
-    .m3-scroll::-webkit-scrollbar-thumb:hover {
-      background-color: rgba(148, 163, 184, 0.25);
+    .tf-btn:hover { background: rgba(125, 211, 252, 0.1); }
+    .tf-btn.active { background: rgba(125, 211, 252, 0.2); color: var(--md-sys-color-primary); border-color: rgba(125, 211, 252, 0.4); }
+    .m3-input {
+      width: 100%; padding: 10px 14px;
+      background-color: var(--md-sys-color-surface-container-high);
+      border: 1px solid var(--md-sys-color-outline);
+      border-radius: var(--md-sys-shape-corner-s);
+      color: var(--md-sys-color-on-surface);
+      font-family: 'Inter', system-ui, sans-serif; font-size: 0.875rem; outline: none;
+      transition: border-color 200ms ease;
     }
-
-    /* Signal states */
-    .signal-buy { border-color: rgba(134, 239, 172, 0.4); background-color: rgba(134, 239, 172, 0.06); }
-    .signal-sell { border-color: rgba(252, 165, 165, 0.4); background-color: rgba(252, 165, 165, 0.06); }
-    .signal-hold { border-color: rgba(253, 224, 71, 0.4); background-color: rgba(253, 224, 71, 0.06); }
-    .signal-neutral { border-color: rgba(125, 211, 252, 0.3); background-color: rgba(125, 211, 252, 0.04); }
+    .m3-input:focus { border-color: var(--md-sys-color-primary); }
+    .mock-warning {
+      background: rgba(252, 165, 165, 0.1); border: 1px solid rgba(252, 165, 165, 0.3);
+      border-radius: 12px; padding: 12px 20px; color: #fca5a5; font-size: 0.875rem;
+      display: none; align-items: center; gap: 8px;
+    }
+    .mock-warning.visible { display: flex; }
+    .news-impact-high { color: #fca5a5; }
+    .news-impact-medium { color: #fcd34d; }
+    .news-impact-low { color: #86efac; }
+    @media (max-width: 768px) {
+      .md-display-small { font-size: 1.75rem; }
+      .m3-card { padding: 16px; }
+      .m3-indicator-card { padding: 14px; }
+      .m3-btn-tonal { padding: 10px 16px; font-size: 0.8125rem; }
+    }
   </style>
 </head>
 <body class="min-h-screen">
   <!-- Header -->
   <header style="background-color: var(--md-sys-color-surface); border-bottom: 1px solid var(--md-sys-color-outline);" class="sticky top-0 z-50">
-    <div class="max-w-7xl mx-auto px-6 py-4 lg:px-8">
-      <div class="flex items-center gap-3">
-        <div class="flex items-center justify-center w-10 h-10 rounded-xl" style="background-color: rgba(125, 211, 252, 0.12);">
-          <span class="text-xl">📊</span>
+    <div class="max-w-7xl mx-auto px-4 py-3 sm:px-6 sm:py-4 lg:px-8">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <div class="flex items-center justify-center w-10 h-10 rounded-xl" style="background-color: rgba(125, 211, 252, 0.12);">
+            <span class="text-xl">📊</span>
+          </div>
+          <div>
+            <h1 class="md-headline-medium" style="color: var(--md-sys-color-on-surface);">Forex Predictor</h1>
+            <p class="md-label-medium hidden sm:block" style="color: var(--md-sys-color-on-surface-variant);">AI-powered market analysis</p>
+          </div>
         </div>
-        <div>
-          <h1 class="md-headline-medium" style="color: var(--md-sys-color-on-surface);">Forex Predictor</h1>
-          <p class="md-label-medium" style="color: var(--md-sys-color-on-surface-variant);">AI-powered market analysis</p>
+        <div class="flex items-center gap-2 sm:gap-3">
+          <div id="dataSourceBadge" class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold" style="background: rgba(134, 239, 172, 0.1); color: #86efac;">
+            <span id="dataSourceDot">🟢</span>
+            <span id="dataSourceText" class="hidden sm:inline">CONNECTING...</span>
+          </div>
+          <button id="autoRefreshToggle" class="m3-btn-tonal m3-btn-primary text-xs py-2 px-3" title="Toggle auto-refresh (30s)">
+            ↻ Auto: OFF
+          </button>
         </div>
       </div>
     </div>
   </header>
 
-  <!-- Main Container -->
-  <div class="max-w-7xl mx-auto px-6 py-8 lg:px-8">
+  <!-- Mock Data Warning Banner -->
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div id="mockWarning" class="mock-warning mt-4">
+      ⚠️ <span><strong>Mock Data Mode</strong> — API key missing or rate-limited. Prices shown are simulated.</span>
+      <span id="mockErrorDetail" class="text-xs opacity-70 ml-2"></span>
+    </div>
+  </div>
 
-    <!-- Controls Section -->
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-5 mb-8">
+  <!-- Main Container -->
+  <div class="max-w-7xl mx-auto px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
+
+    <!-- Controls -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
       <div>
         <label class="md-label-medium block mb-2" style="color: var(--md-sys-color-on-surface-variant);">Select Asset</label>
         <select id="assetSelect" class="m3-select">
-          <option value="XAUUSD">Gold (XAU/USD)</option>
-          <option value="EURUSD">EUR/USD</option>
-          <option value="GBPUSD">GBP/USD</option>
-          <option value="USDJPY">USD/JPY</option>
+          <optgroup label="Metals">
+            <option value="XAUUSD">Gold (XAU/USD)</option>
+          </optgroup>
+          <optgroup label="Major Pairs">
+            <option value="EURUSD">EUR/USD</option>
+            <option value="GBPUSD">GBP/USD</option>
+            <option value="USDJPY">USD/JPY</option>
+            <option value="USDCHF">USD/CHF</option>
+            <option value="AUDUSD">AUD/USD</option>
+            <option value="USDCAD">USD/CAD</option>
+            <option value="NZDUSD">NZD/USD</option>
+          </optgroup>
+          <optgroup label="Cross Pairs">
+            <option value="EURGBP">EUR/GBP</option>
+            <option value="EURJPY">EUR/JPY</option>
+          </optgroup>
         </select>
       </div>
-
       <div>
         <label class="md-label-medium block mb-2" style="color: var(--md-sys-color-on-surface-variant);">Prediction Model</label>
         <select id="modelSelect" class="m3-select">
@@ -262,64 +229,67 @@
           <option value="arima">ARIMA</option>
         </select>
       </div>
-
-      <div class="flex items-end gap-3">
-        <button id="predictBtn" class="m3-btn-tonal m3-btn-secondary flex-1 py-3">
-          ✦ Predict Now
-        </button>
-        <button id="refreshBtn" class="m3-btn-tonal m3-btn-primary flex-1 py-3">
-          ↻ Refresh
-        </button>
+      <div>
+        <label class="md-label-medium block mb-2" style="color: var(--md-sys-color-on-surface-variant);">Timeframe</label>
+        <div class="flex gap-2 flex-wrap">
+          <button class="tf-btn" data-tf="5M">5M</button>
+          <button class="tf-btn" data-tf="15M">15M</button>
+          <button class="tf-btn" data-tf="1H">1H</button>
+          <button class="tf-btn" data-tf="4H">4H</button>
+          <button class="tf-btn active" data-tf="D">1D</button>
+        </div>
+      </div>
+      <div class="flex items-end gap-2">
+        <button id="predictBtn" class="m3-btn-tonal m3-btn-secondary flex-1 py-3">✦ Predict</button>
+        <button id="refreshBtn" class="m3-btn-tonal m3-btn-primary flex-1 py-3">↻ Refresh</button>
       </div>
     </div>
 
     <!-- Main Dashboard Grid -->
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
       <!-- Left Column -->
-      <div class="lg:col-span-1 space-y-6">
-
+      <div class="lg:col-span-1 space-y-5">
         <!-- Price Card -->
         <div class="m3-card">
-          <h2 id="assetName" class="md-headline-small mb-5" style="color: var(--md-sys-color-primary);">Gold (XAU/USD)</h2>
-          <div class="space-y-4">
+          <h2 id="assetName" class="md-headline-small mb-4" style="color: var(--md-sys-color-primary);">Gold (XAU/USD)</h2>
+          <div class="space-y-3">
             <div>
               <p class="md-label-medium mb-1" style="color: var(--md-sys-color-on-surface-variant);">Current Price</p>
               <p id="currentPrice" class="md-display-small" style="color: var(--md-sys-color-secondary);">$0.00</p>
             </div>
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2 flex-wrap">
               <span id="priceChange" class="md-label-medium px-3 py-1 rounded-lg" style="background-color: rgba(134, 239, 172, 0.1); color: var(--md-sys-color-secondary);">+0.00%</span>
+              <span id="lastUpdated" class="md-label-small" style="color: var(--md-sys-color-on-surface-variant);">--</span>
             </div>
-            <div class="grid grid-cols-2 gap-3 pt-4" style="border-top: 1px solid var(--md-sys-color-outline);">
+            <div class="grid grid-cols-2 gap-3 pt-3" style="border-top: 1px solid var(--md-sys-color-outline);">
               <div>
                 <p class="md-label-small" style="color: var(--md-sys-color-on-surface-variant);">High</p>
-                <p id="dayHigh" class="md-title-medium mt-0.5" style="color: var(--md-sys-color-on-surface);">0.00</p>
+                <p id="dayHigh" class="md-title-medium mt-0.5">0.00</p>
               </div>
               <div>
                 <p class="md-label-small" style="color: var(--md-sys-color-on-surface-variant);">Low</p>
-                <p id="dayLow" class="md-title-medium mt-0.5" style="color: var(--md-sys-color-on-surface);">0.00</p>
+                <p id="dayLow" class="md-title-medium mt-0.5">0.00</p>
               </div>
               <div>
                 <p class="md-label-small" style="color: var(--md-sys-color-on-surface-variant);">Open</p>
-                <p id="openPrice" class="md-title-medium mt-0.5" style="color: var(--md-sys-color-on-surface);">0.00</p>
+                <p id="openPrice" class="md-title-medium mt-0.5">0.00</p>
               </div>
               <div>
                 <p class="md-label-small" style="color: var(--md-sys-color-on-surface-variant);">Volume</p>
-                <p class="md-title-medium mt-0.5" style="color: var(--md-sys-color-on-surface);">0</p>
+                <p id="volumeValue" class="md-title-medium mt-0.5">0</p>
               </div>
             </div>
           </div>
         </div>
-
         <!-- Signal Card -->
         <div class="m3-card">
-          <h3 class="md-headline-small mb-5" style="color: var(--md-sys-color-primary);">Trading Signal</h3>
-          <div id="signalBox" class="signal-neutral rounded-2xl p-6 text-center space-y-4" style="border: 1.5px solid;">
-            <div id="signalAction" class="md-display-small" style="color: var(--md-sys-color-primary);">ANALYZING...</div>
+          <h3 class="md-headline-small mb-4" style="color: var(--md-sys-color-primary);">Trading Signal</h3>
+          <div id="signalBox" class="rounded-2xl p-5 text-center space-y-3" style="border: 1.5px solid rgba(125, 211, 252, 0.3); background: rgba(125, 211, 252, 0.04);">
+            <div id="signalAction" class="text-3xl sm:text-4xl font-bold" style="color: var(--md-sys-color-primary);">ANALYZING...</div>
             <div class="space-y-2">
               <div class="flex justify-between items-center">
                 <span class="md-label-medium" style="color: var(--md-sys-color-on-surface-variant);">Confidence</span>
-                <span id="confidencePercent" class="md-label-large" style="color: var(--md-sys-color-on-surface);">0%</span>
+                <span id="confidencePercent" class="md-label-large">0%</span>
               </div>
               <div class="m3-progress-track">
                 <div id="confidenceBar" class="m3-progress-fill" style="width: 0%"></div>
@@ -327,10 +297,9 @@
             </div>
           </div>
         </div>
-
         <!-- Margins Card -->
         <div class="m3-card">
-          <h3 class="md-headline-small mb-5" style="color: var(--md-sys-color-primary);">Trading Margins</h3>
+          <h3 class="md-headline-small mb-4" style="color: var(--md-sys-color-primary);">Trading Margins</h3>
           <div class="space-y-3">
             <div class="m3-stat-row">
               <span class="md-body-medium" style="color: var(--md-sys-color-on-surface-variant);">Entry Price</span>
@@ -346,49 +315,53 @@
             </div>
           </div>
         </div>
-
       </div>
 
       <!-- Right Column - Chart -->
       <div class="lg:col-span-2">
         <div class="m3-card h-full">
-          <h3 class="md-headline-small mb-5" style="color: var(--md-sys-color-primary);">Price & Prediction Chart</h3>
-          <div class="relative h-96">
-            <canvas id="predictionChart"></canvas>
+          <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+            <h3 class="md-headline-small" style="color: var(--md-sys-color-primary);">Price Chart</h3>
+            <div class="flex gap-2">
+              <button id="chartTypeLine" class="tf-btn active" onclick="setChartType('line')">Line</button>
+              <button id="chartTypeCandlestick" class="tf-btn" onclick="setChartType('candlestick')">Candlestick</button>
+            </div>
+          </div>
+          <div class="relative" style="height: 400px;">
+            <canvas id="priceChart"></canvas>
           </div>
         </div>
       </div>
-
     </div>
 
     <!-- Indicators Grid -->
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
       <div class="m3-indicator-card">
         <p class="md-label-medium mb-2" style="color: var(--md-sys-color-on-surface-variant);">RSI</p>
-        <div id="rsiValue" class="text-3xl font-bold" style="color: var(--md-sys-color-primary);">50</div>
+        <div id="rsiValue" class="text-2xl sm:text-3xl font-bold" style="color: var(--md-sys-color-primary);">--</div>
         <p class="md-label-small mt-2" style="color: var(--md-sys-color-on-surface-variant); opacity: 0.6;">Overbought > 70</p>
       </div>
       <div class="m3-indicator-card">
         <p class="md-label-medium mb-2" style="color: var(--md-sys-color-on-surface-variant);">MACD</p>
-        <div id="macdValue" class="text-3xl font-bold" style="color: var(--md-sys-color-primary);">0</div>
+        <div id="macdValue" class="text-2xl sm:text-3xl font-bold" style="color: var(--md-sys-color-primary);">--</div>
         <p class="md-label-small mt-2" style="color: var(--md-sys-color-on-surface-variant); opacity: 0.6;">Trend Signal</p>
       </div>
       <div class="m3-indicator-card">
         <p class="md-label-medium mb-2" style="color: var(--md-sys-color-on-surface-variant);">BB Mid</p>
-        <div id="bbandsValue" class="text-3xl font-bold" style="color: var(--md-sys-color-primary);">0</div>
+        <div id="bbandsValue" class="text-2xl sm:text-3xl font-bold" style="color: var(--md-sys-color-primary);">--</div>
         <p class="md-label-small mt-2" style="color: var(--md-sys-color-on-surface-variant); opacity: 0.6;">Volatility</p>
       </div>
       <div class="m3-indicator-card">
         <p class="md-label-medium mb-2" style="color: var(--md-sys-color-on-surface-variant);">ATR</p>
-        <div id="atrValue" class="text-3xl font-bold" style="color: var(--md-sys-color-primary);">0</div>
+        <div id="atrValue" class="text-2xl sm:text-3xl font-bold" style="color: var(--md-sys-color-primary);">--</div>
         <p class="md-label-small mt-2" style="color: var(--md-sys-color-on-surface-variant); opacity: 0.6;">Range</p>
       </div>
     </div>
 
-    <!-- Predictions Table & Quick Stats -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+    <!-- Predictions & Stats -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
       <div class="m3-card">
-        <h3 class="md-headline-small mb-5" style="color: var(--md-sys-color-primary);">Next 5 Predictions</h3>
+        <h3 class="md-headline-small mb-4" style="color: var(--md-sys-color-primary);">Next 5 Predictions</h3>
         <div class="space-y-2">
           <div class="grid grid-cols-3 gap-2 pb-3 mb-1" style="border-bottom: 1px solid var(--md-sys-color-outline);">
             <span class="md-label-medium" style="color: var(--md-sys-color-on-surface-variant);">Period</span>
@@ -396,16 +369,14 @@
             <span class="md-label-medium" style="color: var(--md-sys-color-on-surface-variant);">Change</span>
           </div>
           <div id="predictionsTable">
-            <div class="text-center py-8">
+            <div class="text-center py-6">
               <p class="md-body-medium" style="color: var(--md-sys-color-on-surface-variant);">Run prediction to see forecasts</p>
             </div>
           </div>
         </div>
       </div>
-
-      <!-- History Summary -->
       <div class="m3-card">
-        <h3 class="md-headline-small mb-5" style="color: var(--md-sys-color-primary);">Quick Stats</h3>
+        <h3 class="md-headline-small mb-4" style="color: var(--md-sys-color-primary);">Quick Stats</h3>
         <div class="space-y-3">
           <div class="m3-stat-row">
             <span class="md-body-medium" style="color: var(--md-sys-color-on-surface-variant);">Total Predictions</span>
@@ -427,21 +398,61 @@
       </div>
     </div>
 
+    <!-- Alerts & News -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+      <!-- Price Alerts -->
+      <div class="m3-card">
+        <h3 class="md-headline-small mb-4" style="color: var(--md-sys-color-primary);">⏰ Price Alerts</h3>
+        <div class="space-y-3 mb-4">
+          <div class="grid grid-cols-2 gap-2">
+            <select id="alertSymbol" class="m3-select text-sm" style="padding: 8px 12px;">
+              <option value="XAUUSD">XAU/USD</option>
+              <option value="EURUSD">EUR/USD</option>
+              <option value="GBPUSD">GBP/USD</option>
+              <option value="USDJPY">USD/JPY</option>
+              <option value="USDCHF">USD/CHF</option>
+              <option value="AUDUSD">AUD/USD</option>
+              <option value="USDCAD">USD/CAD</option>
+              <option value="NZDUSD">NZD/USD</option>
+              <option value="EURGBP">EUR/GBP</option>
+              <option value="EURJPY">EUR/JPY</option>
+            </select>
+            <select id="alertCondition" class="m3-select text-sm" style="padding: 8px 12px;">
+              <option value="above">Price Above</option>
+              <option value="below">Price Below</option>
+            </select>
+          </div>
+          <input id="alertPrice" type="number" step="any" placeholder="Target price..." class="m3-input">
+          <button id="addAlertBtn" class="m3-btn-tonal m3-btn-secondary w-full py-2.5">+ Add Alert</button>
+        </div>
+        <div id="alertsList" class="space-y-2 max-h-48 overflow-y-auto m3-scroll">
+          <p class="md-body-medium text-center py-3" style="color: var(--md-sys-color-on-surface-variant);">No alerts set</p>
+        </div>
+      </div>
+      <!-- Economic News -->
+      <div class="m3-card">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="md-headline-small" style="color: var(--md-sys-color-primary);">📰 Economic Calendar</h3>
+          <button id="refreshNews" class="m3-btn-tonal m3-btn-primary text-xs py-1.5 px-3">Refresh</button>
+        </div>
+        <div id="newsFeed" class="space-y-2 max-h-72 overflow-y-auto m3-scroll">
+          <p class="md-body-medium text-center py-3" style="color: var(--md-sys-color-on-surface-variant);">Loading news...</p>
+        </div>
+      </div>
+    </div>
+
     <!-- Recent Predictions -->
     <div class="m3-card">
-      <div class="flex items-center justify-between mb-6">
+      <div class="flex items-center justify-between mb-5">
         <h3 class="md-headline-small" style="color: var(--md-sys-color-primary);">Recent Predictions History</h3>
-        <button onclick="clearHistory()" class="m3-btn-tonal m3-btn-tertiary text-sm">
-          Clear History
-        </button>
+        <button onclick="clearHistory()" class="m3-btn-tonal m3-btn-tertiary text-sm">Clear History</button>
       </div>
-      <div id="historyContainer" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-h-96 overflow-y-auto m3-scroll">
+      <div id="historyContainer" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 max-h-96 overflow-y-auto m3-scroll">
         <div class="col-span-full text-center py-8">
           <p class="md-body-medium" style="color: var(--md-sys-color-on-surface-variant);">No predictions yet. Make your first prediction!</p>
         </div>
       </div>
     </div>
-
   </div>
 
   <script src="dashboard.js"></script>

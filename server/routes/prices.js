@@ -65,7 +65,6 @@ router.get('/:symbol/history', async (req, res) => {
     const { symbol } = req.params;
     const { timeframe = 'D' } = req.query;
 
-    // Validate inputs
     try {
       Validators.validateSymbol(symbol);
       Validators.validateTimeframe(timeframe);
@@ -79,18 +78,21 @@ router.get('/:symbol/history', async (req, res) => {
 
     logger.info(`Fetching ${timeframe} history for ${symbol}`);
 
-    const historicalData = await dataFetcher.getHistoricalData(symbol, timeframe);
+    const result = await dataFetcher.getHistoricalData(symbol, timeframe);
+    const historicalData = result.data;
     
     if (!Array.isArray(historicalData) || historicalData.length === 0) {
       throw new Error('No historical data available');
     }
 
     const duration = Date.now() - startTime;
-    logger.info(`History fetched for ${symbol} in ${duration}ms - ${historicalData.length} candles`);
+    logger.info(`History fetched for ${symbol} in ${duration}ms - ${historicalData.length} candles (source: ${result.source})`);
 
     res.json({
       success: true,
       responseTime: duration,
+      source: result.source,
+      sourceError: result.sourceError,
       dataPoints: historicalData.length,
       data: historicalData
     });

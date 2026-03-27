@@ -32,7 +32,9 @@ router.post('/:symbol', async (req, res) => {
     logger.info(`Generating ${model} prediction for ${symbol}`);
 
     // Get historical data for prediction
-    const historicalData = await dataFetcher.getHistoricalData(symbol);
+    const histResult = await dataFetcher.getHistoricalData(symbol);
+    const historicalData = histResult.data;
+    const dataSource = histResult.source;
     
     // Validate data
     try {
@@ -70,6 +72,7 @@ router.post('/:symbol', async (req, res) => {
       symbol,
       model,
       responseTime: duration,
+      dataSource,
       ...prediction
     });
   } catch (error) {

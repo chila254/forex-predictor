@@ -3,7 +3,7 @@
  */
 class Validators {
   static validateSymbol(symbol) {
-    const validSymbols = ['XAUUSD', 'EURUSD', 'GBPUSD', 'USDJPY'];
+    const validSymbols = ['XAUUSD', 'EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'AUDUSD', 'USDCAD', 'NZDUSD', 'EURGBP', 'EURJPY'];
     if (!symbol || !validSymbols.includes(symbol)) {
       throw new Error(`Invalid symbol. Supported: ${validSymbols.join(', ')}`);
     }
