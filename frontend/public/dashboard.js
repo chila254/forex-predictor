@@ -34,10 +34,12 @@ function setLoading(isLoading) {
   if (isLoading) {
     btn.disabled = true;
     btn.innerHTML = '⏳ Predicting...';
-    btn.style.opacity = '0.6';
+    btn.className = btn.className.replace(/bg-emerald-500/g, 'bg-sky-400/20');
+    btn.style.opacity = '0.7';
   } else {
     btn.disabled = false;
     btn.innerHTML = '🔮 Predict Now';
+    btn.className = btn.className.replace(/bg-sky-400\/20/g, 'bg-emerald-500');
     btn.style.opacity = '1';
   }
 }
@@ -49,15 +51,15 @@ function showToast(message, type = 'info', duration = 4000) {
   const toast = document.createElement('div');
   
   const colors = {
-    success: { bg: 'bg-green-600', text: 'text-green-100' },
-    error: { bg: 'bg-red-600', text: 'text-red-100' },
-    warning: { bg: 'bg-yellow-600', text: 'text-yellow-100' },
-    info: { bg: 'bg-blue-600', text: 'text-blue-100' }
+    success: { bg: 'bg-emerald-900/30', text: 'text-emerald-300' },
+    error: { bg: 'bg-red-900/30', text: 'text-red-300' },
+    warning: { bg: 'bg-amber-900/30', text: 'text-amber-300' },
+    info: { bg: 'bg-sky-900/30', text: 'text-sky-300' }
   };
   
   const color = colors[type] || colors.info;
   
-  toast.className = `fixed top-4 right-4 z-50 ${color.bg} ${color.text} px-6 py-3 rounded-lg font-semibold shadow-lg`;
+  toast.className = `fixed top-4 right-4 z-50 ${color.bg} ${color.text} px-5 py-3 rounded-2xl font-medium shadow-lg`;
   toast.textContent = message;
   toast.style.animation = 'slideIn 0.3s ease-out';
   
@@ -109,8 +111,8 @@ function updatePriceDisplay(data) {
   const change = ((data.price - data.close) / data.close) * 100;
   priceChangeEl.textContent = `${change > 0 ? '+' : ''}${change.toFixed(2)}%`;
   priceChangeEl.className = change > 0 
-    ? 'px-3 py-1 bg-green-500/20 text-green-400 rounded-full text-sm font-semibold'
-    : 'px-3 py-1 bg-red-500/20 text-red-400 rounded-full text-sm font-semibold';
+    ? 'px-3 py-1 bg-emerald-500/15 text-emerald-400 rounded-lg text-sm font-medium'
+    : 'px-3 py-1 bg-red-500/15 text-red-400 rounded-lg text-sm font-medium';
 
   document.getElementById('dayHigh').textContent = parseFloat(data.high).toFixed(2);
   document.getElementById('dayLow').textContent = parseFloat(data.low).toFixed(2);
@@ -163,17 +165,17 @@ function updateSignalDisplay(prediction) {
   const signal = prediction.signal;
   const confPercent = Math.round(signal.confidence * 100);
   
-  signalBox.className = `rounded-lg p-6 text-center space-y-3 border-2 ${
-    signal.action === 'BUY' ? 'bg-green-900/20 border-green-500' :
-    signal.action === 'SELL' ? 'bg-red-900/20 border-red-500' :
-    'bg-yellow-900/20 border-yellow-500'
+  signalBox.className = `rounded-2xl p-6 text-center space-y-3 border ${
+    signal.action === 'BUY' ? 'bg-emerald-500/10 border-emerald-500/20' :
+    signal.action === 'SELL' ? 'bg-red-500/10 border-red-500/20' :
+    'bg-amber-500/10 border-amber-500/20'
   }`;
   
   signalAction.textContent = signal.action;
   signalAction.className = `text-4xl font-bold ${
-    signal.action === 'BUY' ? 'text-green-400' :
+    signal.action === 'BUY' ? 'text-emerald-400' :
     signal.action === 'SELL' ? 'text-red-400' :
-    'text-yellow-400'
+    'text-amber-400'
   }`;
   
   confidenceBar.style.width = confPercent + '%';
@@ -195,10 +197,10 @@ function updatePredictionsTable(predictions, currentPrice) {
   const tbody = document.getElementById('predictionsTable');
   const rows = predictions.map((price, index) => {
     const change = ((price - currentPrice) / currentPrice) * 100;
-    const changeColor = change > 0 ? 'text-green-400' : 'text-red-400';
+    const changeColor = change > 0 ? 'text-emerald-400' : 'text-red-400';
     
     return `
-      <div class="grid grid-cols-3 gap-2 py-2 border-b border-cyan-900/20 hover:bg-cyan-900/10 px-2 rounded">
+      <div class="grid grid-cols-3 gap-2 py-3 border-b border-slate-700/30 px-3 rounded-xl hover:bg-slate-700/20 transition-colors">
         <div class="text-sm">Period ${index + 1}</div>
         <div class="text-sm">$${parseFloat(price).toFixed(2)}</div>
         <div class="text-sm font-semibold ${changeColor}">${change > 0 ? '+' : ''}${change.toFixed(2)}%</div>
@@ -219,8 +221,8 @@ function initChart() {
         {
           label: 'Historical Price',
           data: [],
-          borderColor: '#00d4ff',
-          backgroundColor: 'rgba(0, 212, 255, 0.1)',
+          borderColor: '#7dd3fc',
+          backgroundColor: 'rgba(125, 211, 252, 0.05)',
           borderWidth: 2,
           tension: 0.4,
           fill: true,
@@ -230,8 +232,8 @@ function initChart() {
         {
           label: 'Predicted Price',
           data: [],
-          borderColor: '#00ff88',
-          backgroundColor: 'rgba(0, 255, 136, 0.1)',
+          borderColor: '#86efac',
+          backgroundColor: 'rgba(134, 239, 172, 0.05)',
           borderWidth: 2,
           borderDash: [5, 5],
           tension: 0.4,
@@ -246,17 +248,17 @@ function initChart() {
       maintainAspectRatio: false,
       plugins: {
         legend: {
-          labels: { color: '#888', font: { size: 12 } }
+          labels: { color: '#94a3b8', font: { size: 12 } }
         }
       },
       scales: {
         y: {
-          grid: { color: 'rgba(0, 212, 255, 0.05)' },
-          ticks: { color: '#888', font: { size: 11 } }
+          grid: { color: 'rgba(148, 163, 184, 0.06)' },
+          ticks: { color: '#64748b', font: { size: 11 } }
         },
         x: {
-          grid: { color: 'rgba(0, 212, 255, 0.05)' },
-          ticks: { color: '#888', font: { size: 11 } }
+          grid: { color: 'rgba(148, 163, 184, 0.06)' },
+          ticks: { color: '#64748b', font: { size: 11 } }
         }
       }
     }
@@ -330,15 +332,15 @@ function updateHistoryDisplay() {
   const html = predictionHistory.slice(0, 12).map(entry => {
     const time = new Date(entry.timestamp).toLocaleTimeString();
     const change = ((entry.predicted - entry.currentPrice) / entry.currentPrice * 100).toFixed(2);
-    const signalBg = entry.signal === 'BUY' ? 'bg-green-900/20 border-green-500' : 
-                     entry.signal === 'SELL' ? 'bg-red-900/20 border-red-500' : 
-                     'bg-yellow-900/20 border-yellow-500';
-    const signalColor = entry.signal === 'BUY' ? 'text-green-400' : 
+    const signalBg = entry.signal === 'BUY' ? 'bg-emerald-500/5 border-emerald-500/15' : 
+                     entry.signal === 'SELL' ? 'bg-red-500/5 border-red-500/15' : 
+                     'bg-amber-500/5 border-amber-500/15';
+    const signalColor = entry.signal === 'BUY' ? 'text-emerald-400' : 
                         entry.signal === 'SELL' ? 'text-red-400' : 
-                        'text-yellow-400';
+                        'text-amber-400';
     
     return `
-      <div class="glass rounded-lg p-4 border-2 ${signalBg}">
+      <div class="rounded-2xl p-4 border transition-colors ${signalBg}">
         <div class="flex justify-between items-start mb-2">
           <span class="font-bold ${signalColor}">${entry.signal}</span>
           <span class="text-xs text-gray-400">${time}</span>
