@@ -16,16 +16,16 @@
       "dest": "server/app.js"
     },
     {
-      "src": "/(.*)",
+      "src": "/health",
+      "dest": "server/app.js"
+    },
+    {
+      "src": "/(.*\\.[a-zA-Z0-9]+)$",
       "dest": "frontend/public/$1"
     },
     {
-      "src": "/",
+      "src": "/(.*)",
       "dest": "frontend/public/index.html"
     }
-  ],
-  "env": {
-    "NODE_ENV": "production",
-    "PORT": "3000"
-  }
+  ]
 }
