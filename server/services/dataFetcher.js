@@ -2,6 +2,8 @@ const axios = require('axios');
 
 const TWELVE_DATA_API_KEY = process.env.TWELVE_DATA_API_KEY;
 const TWELVE_DATA_BASE_URL = 'https://api.twelvedata.com';
+const GOLD_API_KEY = process.env.GOLD_API_KEY;
+const GOLD_API_BASE_URL = 'https://www.goldapi.io/api';
 
 const BASE_PRICES = {
   XAUUSD: 2650,
@@ -16,18 +18,83 @@ const BASE_PRICES = {
   EURJPY: 162.5,
 };
 
-// Cache to avoid hitting rate limits (free tier = 8 calls/min)
+// Cache to avoid hitting rate limits
 const priceCache = new Map();
 const CACHE_TTL = 30 * 1000; // 30 seconds
+const GOLD_CACHE_TTL = 60 * 1000; // 60 seconds (GoldAPI free = 100 reqs/month)
 
 class DataFetcher {
-  async getPriceData(symbol) {
+
+  // ===== GOLD-SPECIFIC METHODS (GoldAPI.io) =====
+
+  async getGoldPrice() {
+    try {
+      if (!GOLD_API_KEY) {
+        throw new Error('GOLD_API_KEY is not configured');
+      }
+
+      const cacheKey = 'quote_XAUUSD';
+      const cached = priceCache.get(cacheKey);
+      if (cached && (Date.now() - cached.time) < GOLD_CACHE_TTL) {
+        console.log('[DataFetcher] Cache hit for XAUUSD (GoldAPI)');
+        return { ...cached.data, source: 'live' };
+      }
+
+      console.log('[DataFetcher] Fetching XAU/USD from GoldAPI.io');
+
+      const response = await axios.get(`${GOLD_API_BASE_URL}/XAU/USD`, {
+        headers: {
+          'x-access-token': GOLD_API_KEY,
+          'Content-Type': 'application/json'
+        },
+        timeout: 10000
+      });
+
+      const d = response.data;
+      console.log('[DataFetcher] GoldAPI response:', JSON.stringify(d).slice(0, 500));
+
+      if (d.error) {
+        throw new Error(d.error);
+      }
+
+      const price = parseFloat(d.price);
+      if (isNaN(price) || price <= 0) {
+        throw new Error(`Invalid gold price: ${d.price}`);
+      }
+
+      const result = {
+        symbol: 'XAUUSD',
+        price,
+        high: parseFloat(d.high_price) || price,
+        low: parseFloat(d.low_price) || price,
+        open: parseFloat(d.open_price) || price,
+        close: parseFloat(d.prev_close_price) || price,
+        volume: 0,
+        timestamp: new Date(),
+      };
+
+      priceCache.set(cacheKey, { data: result, time: Date.now() });
+      return { ...result, source: 'live' };
+    } catch (error) {
+      console.error('[DataFetcher] GoldAPI error:', error.message);
+      // Try Twelve Data as secondary fallback
+      return this.getTwelveDataPrice('XAUUSD');
+    }
+  }
+
+  async getGoldHistory(timeframe) {
+    // GoldAPI free tier doesn't have time series, so use Twelve Data or mock
+    return this.getTwelveDataHistory('XAUUSD', timeframe);
+  }
+
+  // ===== TWELVE DATA METHODS =====
+
+  async getTwelveDataPrice(symbol) {
     try {
       if (!TWELVE_DATA_API_KEY) {
         throw new Error('TWELVE_DATA_API_KEY is not configured');
       }
 
-      // Check cache first
       const cacheKey = `quote_${symbol}`;
       const cached = priceCache.get(cacheKey);
       if (cached && (Date.now() - cached.time) < CACHE_TTL) {
@@ -36,8 +103,7 @@ class DataFetcher {
       }
 
       const tdSymbol = symbol === 'XAUUSD' ? 'XAU/USD' : `${symbol.slice(0, 3)}/${symbol.slice(3)}`;
-
-      console.log(`[DataFetcher] Fetching quote for ${tdSymbol} (key: ${TWELVE_DATA_API_KEY.slice(0, 4)}...)`);
+      console.log(`[DataFetcher] Fetching quote for ${tdSymbol} from TwelveData`);
 
       const response = await axios.get(`${TWELVE_DATA_BASE_URL}/quote`, {
         params: {
@@ -50,12 +116,10 @@ class DataFetcher {
       const d = response.data;
       console.log(`[DataFetcher] Quote response for ${tdSymbol}:`, JSON.stringify(d).slice(0, 500));
 
-      // Twelve Data returns error codes like 400, 401, 429 in response body
       if (d.code || d.status === 'error') {
         throw new Error(d.message || `API error code: ${d.code}`);
       }
 
-      // Validate we got actual price data
       const price = parseFloat(d.close);
       if (isNaN(price) || price <= 0) {
         throw new Error(`Invalid price data received: close=${d.close}`);
@@ -73,36 +137,19 @@ class DataFetcher {
       };
 
       priceCache.set(cacheKey, { data: result, time: Date.now() });
-
       return { ...result, source: 'live' };
     } catch (error) {
-      console.error(`[DataFetcher] Error fetching price for ${symbol}:`, error.message);
-
-      const base = BASE_PRICES[symbol] || 100;
-      const variation = base * 0.005;
-      const price = base + (Math.random() - 0.5) * 2 * variation;
-      return {
-        symbol,
-        price,
-        high: price + Math.random() * variation,
-        low: price - Math.random() * variation,
-        open: base + (Math.random() - 0.5) * variation,
-        close: base + (Math.random() - 0.5) * variation,
-        volume: Math.floor(Math.random() * 1000000),
-        timestamp: new Date(),
-        source: 'mock',
-        sourceError: error.message
-      };
+      console.error(`[DataFetcher] TwelveData error for ${symbol}:`, error.message);
+      return this.getMockPrice(symbol, error.message);
     }
   }
 
-  async getHistoricalData(symbol, timeframe = 'D') {
+  async getTwelveDataHistory(symbol, timeframe = 'D') {
     try {
       if (!TWELVE_DATA_API_KEY) {
         throw new Error('TWELVE_DATA_API_KEY is not configured');
       }
 
-      // Check cache first (use longer TTL for historical data)
       const cacheKey = `hist_${symbol}_${timeframe}`;
       const cached = priceCache.get(cacheKey);
       if (cached && (Date.now() - cached.time) < CACHE_TTL * 4) {
@@ -127,9 +174,8 @@ class DataFetcher {
       });
 
       const d = response.data;
-      console.log(`[DataFetcher] Time series response keys:`, Object.keys(d), `status: ${d.status}, code: ${d.code}`);
+      console.log(`[DataFetcher] Time series keys:`, Object.keys(d), `status: ${d.status}, code: ${d.code}`);
 
-      // Check for API errors first
       if (d.code || d.status === 'error') {
         throw new Error(d.message || `API error code: ${d.code}`);
       }
@@ -148,37 +194,75 @@ class DataFetcher {
         return { source: 'live', data };
       }
 
-      // Log the full response if we didn't get values
       console.error(`[DataFetcher] No values in response:`, JSON.stringify(d).slice(0, 1000));
-      throw new Error(d.message || 'API returned no data - check your plan supports this symbol/interval');
+      throw new Error(d.message || 'API returned no data');
     } catch (error) {
-      console.error('[DataFetcher] Error fetching historical data:', error.message);
-
-      const base = BASE_PRICES[symbol] || 100;
-      const variation = base * 0.003;
-      const historicalData = [];
-      let price = base;
-
-      for (let i = 100; i > 0; i--) {
-        const date = new Date();
-        date.setDate(date.getDate() - i);
-        price += (Math.random() - 0.5) * 2 * variation;
-        const dayVariation = base * 0.002;
-        historicalData.push({
-          date,
-          open: price + (Math.random() - 0.5) * dayVariation,
-          high: price + Math.random() * dayVariation,
-          low: price - Math.random() * dayVariation,
-          close: price + (Math.random() - 0.5) * dayVariation,
-          volume: Math.floor(Math.random() * 1000000)
-        });
-      }
-      return {
-        source: 'mock',
-        sourceError: error.message,
-        data: historicalData
-      };
+      console.error('[DataFetcher] History error:', error.message);
+      return this.getMockHistory(symbol, error.message);
     }
+  }
+
+  // ===== MOCK DATA FALLBACKS =====
+
+  getMockPrice(symbol, errorMsg) {
+    const base = BASE_PRICES[symbol] || 100;
+    const variation = base * 0.005;
+    const price = base + (Math.random() - 0.5) * 2 * variation;
+    return {
+      symbol,
+      price,
+      high: price + Math.random() * variation,
+      low: price - Math.random() * variation,
+      open: base + (Math.random() - 0.5) * variation,
+      close: base + (Math.random() - 0.5) * variation,
+      volume: Math.floor(Math.random() * 1000000),
+      timestamp: new Date(),
+      source: 'mock',
+      sourceError: errorMsg
+    };
+  }
+
+  getMockHistory(symbol, errorMsg) {
+    const base = BASE_PRICES[symbol] || 100;
+    const variation = base * 0.003;
+    const historicalData = [];
+    let price = base;
+
+    for (let i = 100; i > 0; i--) {
+      const date = new Date();
+      date.setDate(date.getDate() - i);
+      price += (Math.random() - 0.5) * 2 * variation;
+      const dayVariation = base * 0.002;
+      historicalData.push({
+        date,
+        open: price + (Math.random() - 0.5) * dayVariation,
+        high: price + Math.random() * dayVariation,
+        low: price - Math.random() * dayVariation,
+        close: price + (Math.random() - 0.5) * dayVariation,
+        volume: Math.floor(Math.random() * 1000000)
+      });
+    }
+    return {
+      source: 'mock',
+      sourceError: errorMsg,
+      data: historicalData
+    };
+  }
+
+  // ===== PUBLIC API (routes call these) =====
+
+  async getPriceData(symbol) {
+    if (symbol === 'XAUUSD' && GOLD_API_KEY) {
+      return this.getGoldPrice();
+    }
+    return this.getTwelveDataPrice(symbol);
+  }
+
+  async getHistoricalData(symbol, timeframe = 'D') {
+    if (symbol === 'XAUUSD' && GOLD_API_KEY) {
+      return this.getGoldHistory(timeframe);
+    }
+    return this.getTwelveDataHistory(symbol, timeframe);
   }
 }
 
