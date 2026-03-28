@@ -202,17 +202,17 @@
       <div>
         <label class="md-label-medium block mb-2" style="color: var(--md-sys-color-on-surface-variant);">Select Asset</label>
         <select id="assetSelect" class="m3-select">
-          <optgroup label="Metals">
-            <option value="XAUUSD">Gold (XAU/USD)</option>
-          </optgroup>
           <optgroup label="Major Pairs">
-            <option value="EURUSD">EUR/USD</option>
+            <option value="EURUSD" selected>EUR/USD</option>
             <option value="GBPUSD">GBP/USD</option>
             <option value="USDJPY">USD/JPY</option>
             <option value="USDCHF">USD/CHF</option>
             <option value="AUDUSD">AUD/USD</option>
             <option value="USDCAD">USD/CAD</option>
             <option value="NZDUSD">NZD/USD</option>
+          </optgroup>
+          <optgroup label="Metals">
+            <option value="XAUUSD">Gold (XAU/USD) ★</option>
           </optgroup>
           <optgroup label="Cross Pairs">
             <option value="EURGBP">EUR/GBP</option>
@@ -251,7 +251,7 @@
       <div class="lg:col-span-1 space-y-5">
         <!-- Price Card -->
         <div class="m3-card">
-          <h2 id="assetName" class="md-headline-small mb-4" style="color: var(--md-sys-color-primary);">Gold (XAU/USD)</h2>
+          <h2 id="assetName" class="md-headline-small mb-4" style="color: var(--md-sys-color-primary);">EUR/USD</h2>
           <div class="space-y-3">
             <div>
               <p class="md-label-medium mb-1" style="color: var(--md-sys-color-on-surface-variant);">Current Price</p>

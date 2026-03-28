@@ -1,6 +1,6 @@
 // ========== State ==========
 let chart = null;
-let currentAsset = 'XAUUSD';
+let currentAsset = 'EURUSD';
 let currentModel = 'ensemble';
 let currentTimeframe = 'D';
 let chartType = 'line';

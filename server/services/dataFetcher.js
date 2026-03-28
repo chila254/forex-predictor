@@ -16,6 +16,10 @@ const BASE_PRICES = {
   EURJPY: 162.5,
 };
 
+// Cache to avoid hitting rate limits (free tier = 8 calls/min)
+const priceCache = new Map();
+const CACHE_TTL = 30 * 1000; // 30 seconds
+
 class DataFetcher {
   async getPriceData(symbol) {
     try {
@@ -23,7 +27,17 @@ class DataFetcher {
         throw new Error('TWELVE_DATA_API_KEY is not configured');
       }
 
+      // Check cache first
+      const cacheKey = `quote_${symbol}`;
+      const cached = priceCache.get(cacheKey);
+      if (cached && (Date.now() - cached.time) < CACHE_TTL) {
+        console.log(`[DataFetcher] Cache hit for ${symbol} quote`);
+        return { ...cached.data, source: 'live' };
+      }
+
       const tdSymbol = symbol === 'XAUUSD' ? 'XAU/USD' : `${symbol.slice(0, 3)}/${symbol.slice(3)}`;
+
+      console.log(`[DataFetcher] Fetching quote for ${tdSymbol} (key: ${TWELVE_DATA_API_KEY.slice(0, 4)}...)`);
 
       const response = await axios.get(`${TWELVE_DATA_BASE_URL}/quote`, {
         params: {
@@ -34,23 +48,35 @@ class DataFetcher {
       });
 
       const d = response.data;
+      console.log(`[DataFetcher] Quote response for ${tdSymbol}:`, JSON.stringify(d).slice(0, 500));
+
+      // Twelve Data returns error codes like 400, 401, 429 in response body
       if (d.code || d.status === 'error') {
-        throw new Error(d.message || 'API returned error');
+        throw new Error(d.message || `API error code: ${d.code}`);
       }
 
-      return {
+      // Validate we got actual price data
+      const price = parseFloat(d.close);
+      if (isNaN(price) || price <= 0) {
+        throw new Error(`Invalid price data received: close=${d.close}`);
+      }
+
+      const result = {
         symbol,
-        price: parseFloat(d.close),
-        high: parseFloat(d.high),
-        low: parseFloat(d.low),
-        open: parseFloat(d.open),
-        close: parseFloat(d.previous_close),
+        price,
+        high: parseFloat(d.high) || price,
+        low: parseFloat(d.low) || price,
+        open: parseFloat(d.open) || price,
+        close: parseFloat(d.previous_close) || price,
         volume: parseInt(d.volume) || 0,
         timestamp: new Date(),
-        source: 'live'
       };
+
+      priceCache.set(cacheKey, { data: result, time: Date.now() });
+
+      return { ...result, source: 'live' };
     } catch (error) {
-      console.error(`Error fetching data for ${symbol}:`, error.message);
+      console.error(`[DataFetcher] Error fetching price for ${symbol}:`, error.message);
 
       const base = BASE_PRICES[symbol] || 100;
       const variation = base * 0.005;
@@ -76,13 +102,24 @@ class DataFetcher {
         throw new Error('TWELVE_DATA_API_KEY is not configured');
       }
 
+      // Check cache first (use longer TTL for historical data)
+      const cacheKey = `hist_${symbol}_${timeframe}`;
+      const cached = priceCache.get(cacheKey);
+      if (cached && (Date.now() - cached.time) < CACHE_TTL * 4) {
+        console.log(`[DataFetcher] Cache hit for ${symbol} ${timeframe} history`);
+        return { source: 'live', data: cached.data };
+      }
+
       const tdSymbol = symbol === 'XAUUSD' ? 'XAU/USD' : `${symbol.slice(0, 3)}/${symbol.slice(3)}`;
       const intervalMap = { '5M': '5min', '15M': '15min', '1H': '1h', '4H': '4h', 'D': '1day' };
+      const interval = intervalMap[timeframe] || '1day';
+
+      console.log(`[DataFetcher] Fetching time_series for ${tdSymbol}, interval=${interval}`);
 
       const response = await axios.get(`${TWELVE_DATA_BASE_URL}/time_series`, {
         params: {
           symbol: tdSymbol,
-          interval: intervalMap[timeframe] || '1day',
+          interval,
           outputsize: 100,
           apikey: TWELVE_DATA_API_KEY
         },
@@ -90,23 +127,32 @@ class DataFetcher {
       });
 
       const d = response.data;
-      if (d.values && Array.isArray(d.values)) {
-        return {
-          source: 'live',
-          data: d.values.reverse().map(v => ({
-            date: new Date(v.datetime),
-            open: parseFloat(v.open),
-            high: parseFloat(v.high),
-            low: parseFloat(v.low),
-            close: parseFloat(v.close),
-            volume: parseInt(v.volume) || 0
-          }))
-        };
+      console.log(`[DataFetcher] Time series response keys:`, Object.keys(d), `status: ${d.status}, code: ${d.code}`);
+
+      // Check for API errors first
+      if (d.code || d.status === 'error') {
+        throw new Error(d.message || `API error code: ${d.code}`);
       }
 
-      throw new Error('API returned no data');
+      if (d.values && Array.isArray(d.values) && d.values.length > 0) {
+        console.log(`[DataFetcher] Got ${d.values.length} candles for ${tdSymbol}`);
+        const data = d.values.reverse().map(v => ({
+          date: new Date(v.datetime),
+          open: parseFloat(v.open),
+          high: parseFloat(v.high),
+          low: parseFloat(v.low),
+          close: parseFloat(v.close),
+          volume: parseInt(v.volume) || 0
+        }));
+        priceCache.set(cacheKey, { data, time: Date.now() });
+        return { source: 'live', data };
+      }
+
+      // Log the full response if we didn't get values
+      console.error(`[DataFetcher] No values in response:`, JSON.stringify(d).slice(0, 1000));
+      throw new Error(d.message || 'API returned no data - check your plan supports this symbol/interval');
     } catch (error) {
-      console.error('Error fetching historical data:', error.message);
+      console.error('[DataFetcher] Error fetching historical data:', error.message);
 
       const base = BASE_PRICES[symbol] || 100;
       const variation = base * 0.003;
