@@ -5,6 +5,40 @@ const Validators = require('../utils/validators');
 const logger = require('../utils/logger');
 
 /**
+ * GET /api/prices/batch
+ * Get current prices for multiple symbols at once
+ */
+router.get('/batch', async (req, res) => {
+  const startTime = Date.now();
+  const symbols = ['EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'AUDUSD', 'USDCAD', 'NZDUSD', 'XAUUSD', 'EURGBP', 'EURJPY'];
+  
+  try {
+    const results = await Promise.allSettled(
+      symbols.map(s => dataFetcher.getPriceData(s))
+    );
+
+    const prices = {};
+    results.forEach((result, i) => {
+      if (result.status === 'fulfilled' && result.value) {
+        prices[symbols[i]] = result.value;
+      }
+    });
+
+    const duration = Date.now() - startTime;
+    logger.info(`Batch prices fetched in ${duration}ms - ${Object.keys(prices).length} symbols`);
+
+    res.json({
+      success: true,
+      responseTime: duration,
+      prices
+    });
+  } catch (error) {
+    logger.error(`Batch price error: ${error.message}`);
+    res.status(500).json({ success: false, error: 'Failed to fetch batch prices' });
+  }
+});
+
+/**
  * GET /api/prices/:symbol
  * Get current price for a symbol
  */
