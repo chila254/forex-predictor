@@ -87,31 +87,25 @@ function initTradingView() {
   var container = document.getElementById('tradingview_chart');
   if (!container) return;
 
-  var symbol = TV_SYMBOLS[currentAsset] || 'FX:EURUSD';
+  var symbol = encodeURIComponent(TV_SYMBOLS[currentAsset] || 'FX:EURUSD');
   var interval = TV_INTERVALS[currentTimeframe] || 'D';
   var tvTheme = theme === 'light' ? 'light' : 'dark';
 
-  var config = {
-    autosize: true,
-    symbol: symbol,
-    interval: interval,
-    timezone: 'Etc/UTC',
-    theme: tvTheme,
-    style: '1',
-    locale: 'en',
-    toolbar_bg: tvTheme === 'light' ? '#ffffff' : '#1a1f2e',
-    enable_publishing: false,
-    allow_symbol_change: false,
-    hide_side_toolbar: false,
-    save_image: false,
-    container_id: 'tradingview_chart'
-  };
+  var url = 'https://s.tradingview.com/widgetembed/?hideideas=1&overrides=&enabled_features=&disabled_features=&locale=en'
+    + '#%7B%22symbol%22%3A%22' + symbol + '%22'
+    + '%2C%22frameElementId%22%3A%22tradingview_chart%22'
+    + '%2C%22interval%22%3A%22' + interval + '%22'
+    + '%2C%22theme%22%3A%22' + tvTheme + '%22'
+    + '%2C%22style%22%3A%221%22'
+    + '%2C%22timezone%22%3A%22Etc%2FUTC%22'
+    + '%2C%22withdateranges%22%3A%221%22'
+    + '%2C%22hide_side_toolbar%22%3A%220%22'
+    + '%2C%22allow_symbol_change%22%3A%220%22'
+    + '%2C%22save_image%22%3A%220%22'
+    + '%2C%22utm_source%22%3A%22forex-predictor%22'
+    + '%2C%22utm_medium%22%3A%22widget_new%22%7D';
 
-  container.innerHTML = '<div class="tradingview-widget-container" style="height:100%;width:100%;">' +
-    '<div id="tradingview_embed" style="height:100%;width:100%;"></div>' +
-    '<script type="text/javascript" src="https://s.tradingview.com/external-embedding/embed-widget-advanced-chart.js">' +
-    JSON.stringify(config) +
-    '<\/script></div>';
+  container.innerHTML = '<iframe src="' + url + '" style="width:100%;height:100%;border:none;" allowtransparency="true" allowfullscreen></iframe>';
 }
 
 // ========== Notifications ==========
