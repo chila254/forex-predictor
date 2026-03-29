@@ -81,47 +81,37 @@ function toggleTheme() {
   initTradingView();
 }
 
-// ========== TradingView Chart ==========
-var tvRetryCount = 0;
-var tvRetryMax = 20;
-var tvRetryTimer = null;
-
+// ========== TradingView Chart (iframe embed) ==========
 function initTradingView() {
   var theme = document.documentElement.getAttribute('data-theme') || 'dark';
   var container = document.getElementById('tradingview_chart');
   if (!container) return;
 
-  if (typeof TradingView === 'undefined') {
-    tvRetryCount++;
-    if (tvRetryCount <= tvRetryMax) {
-      container.innerHTML = '<p style="color:var(--md-on-sv);text-align:center;padding:40px;">Loading chart' + '.'.repeat((tvRetryCount % 3) + 1) + '</p>';
-      if (tvRetryTimer) clearTimeout(tvRetryTimer);
-      tvRetryTimer = setTimeout(initTradingView, 500);
-    } else {
-      container.innerHTML = '<p style="color:#fca5a5;text-align:center;padding:40px;">Chart failed to load. TradingView may be blocked by your browser or ad blocker.</p>';
-    }
-    return;
-  }
+  var symbol = TV_SYMBOLS[currentAsset] || 'FX:EURUSD';
+  var interval = TV_INTERVALS[currentTimeframe] || 'D';
+  var tvTheme = theme === 'light' ? 'light' : 'dark';
 
-  tvRetryCount = 0;
-  if (tvRetryTimer) { clearTimeout(tvRetryTimer); tvRetryTimer = null; }
-  container.innerHTML = '';
-
-  new TradingView.widget({
-    container_id: 'tradingview_chart',
-    symbol: TV_SYMBOLS[currentAsset] || 'FX:EURUSD',
-    interval: TV_INTERVALS[currentTimeframe] || 'D',
-    theme: theme === 'light' ? 'light' : 'dark',
+  var config = {
+    autosize: true,
+    symbol: symbol,
+    interval: interval,
+    timezone: 'Etc/UTC',
+    theme: tvTheme,
     style: '1',
     locale: 'en',
-    toolbar_bg: theme === 'light' ? '#ffffff' : '#1a1f2e',
+    toolbar_bg: tvTheme === 'light' ? '#ffffff' : '#1a1f2e',
     enable_publishing: false,
     allow_symbol_change: false,
     hide_side_toolbar: false,
-    width: '100%',
-    height: 400,
-    save_image: false
-  });
+    save_image: false,
+    container_id: 'tradingview_chart'
+  };
+
+  container.innerHTML = '<div class="tradingview-widget-container" style="height:100%;width:100%;">' +
+    '<div id="tradingview_embed" style="height:100%;width:100%;"></div>' +
+    '<script type="text/javascript" src="https://s.tradingview.com/external-embedding/embed-widget-advanced-chart.js">' +
+    JSON.stringify(config) +
+    '<\/script></div>';
 }
 
 // ========== Notifications ==========
