@@ -82,16 +82,30 @@ function toggleTheme() {
 }
 
 // ========== TradingView Chart ==========
+var tvRetryCount = 0;
+var tvRetryMax = 20;
+var tvRetryTimer = null;
+
 function initTradingView() {
   var theme = document.documentElement.getAttribute('data-theme') || 'dark';
   var container = document.getElementById('tradingview_chart');
   if (!container) return;
-  container.innerHTML = '';
 
   if (typeof TradingView === 'undefined') {
-    container.innerHTML = '<p style="color:var(--md-on-sv);text-align:center;padding:40px;">Loading chart...</p>';
+    tvRetryCount++;
+    if (tvRetryCount <= tvRetryMax) {
+      container.innerHTML = '<p style="color:var(--md-on-sv);text-align:center;padding:40px;">Loading chart' + '.'.repeat((tvRetryCount % 3) + 1) + '</p>';
+      if (tvRetryTimer) clearTimeout(tvRetryTimer);
+      tvRetryTimer = setTimeout(initTradingView, 500);
+    } else {
+      container.innerHTML = '<p style="color:#fca5a5;text-align:center;padding:40px;">Chart failed to load. TradingView may be blocked by your browser or ad blocker.</p>';
+    }
     return;
   }
+
+  tvRetryCount = 0;
+  if (tvRetryTimer) { clearTimeout(tvRetryTimer); tvRetryTimer = null; }
+  container.innerHTML = '';
 
   new TradingView.widget({
     container_id: 'tradingview_chart',
