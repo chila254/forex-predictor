@@ -9,6 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap" rel="stylesheet">
   <script>tailwind.config={theme:{extend:{fontFamily:{sans:['Inter','system-ui','sans-serif']}}}}</script>
   <style>
     :root, [data-theme="dark"] {
@@ -63,6 +64,9 @@
     @keyframes slideOut { from{transform:translateX(0);opacity:1} to{transform:translateX(400px);opacity:0} }
     .m3-scroll::-webkit-scrollbar{width:6px} .m3-scroll::-webkit-scrollbar-track{background:transparent} .m3-scroll::-webkit-scrollbar-thumb{background:rgba(148,163,184,0.15);border-radius:3px}
     .news-impact-high{color:#fca5a5} .news-impact-medium{color:#fcd34d} .news-impact-low{color:#86efac}
+    .mi { font-family:'Material Symbols Rounded'; font-weight:normal; font-style:normal; font-size:20px; line-height:1; letter-spacing:normal; text-transform:none; display:inline-block; white-space:nowrap; word-wrap:normal; direction:ltr; -webkit-font-smoothing:antialiased; font-variation-settings:'FILL' 1,'wght' 400,'GRAD' 0,'opsz' 24; vertical-align:middle; }
+    .mi-sm { font-size:18px; }
+    .mi-xs { font-size:16px; }
     @media(max-width:768px){.md-display-small{font-size:1.75rem}.m3-card{padding:16px}.m3-btn{padding:10px 16px;font-size:0.8125rem}}
   </style>
 </head>
@@ -71,7 +75,7 @@
     <div class="max-w-7xl mx-auto px-4 py-3 sm:px-6 lg:px-8">
       <div class="flex items-center justify-between">
         <div class="flex items-center gap-3">
-          <div class="flex items-center justify-center w-10 h-10 rounded-xl" style="background:rgba(125,211,252,0.12);"><span class="text-xl">📊</span></div>
+          <div class="flex items-center justify-center w-10 h-10 rounded-xl" style="background:rgba(125,211,252,0.12);"><span class="mi" style="color:var(--md-primary);">candlestick_chart</span></div>
           <div>
             <h1 class="md-headline-medium" style="color:var(--md-on-surface);">Forex Predictor</h1>
             <p class="md-label-medium hidden sm:block" style="color:var(--md-on-sv);">AI-powered market analysis</p>
@@ -79,24 +83,24 @@
         </div>
         <div class="flex items-center gap-2">
           <div id="dataSourceBadge" class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold" style="background:rgba(134,239,172,0.1);color:#86efac;">
-            <span id="dataSourceDot">🟢</span><span id="dataSourceText" class="hidden sm:inline">CONNECTING...</span>
+            <span id="dataSourceDot" class="mi mi-xs">circle</span><span id="dataSourceText" class="hidden sm:inline">CONNECTING...</span>
           </div>
-          <button id="themeToggle" class="hdr-btn" onclick="toggleTheme()" title="Toggle theme">🌙</button>
-          <button id="notifBtn" class="hdr-btn" onclick="enableNotifications()" title="Enable notifications">🔕</button>
-          <button id="autoRefreshToggle" class="hdr-btn" title="Auto-refresh (30s)">↻ OFF</button>
+          <button id="themeToggle" class="hdr-btn" onclick="toggleTheme()" title="Toggle theme"><span class="mi mi-sm">dark_mode</span></button>
+          <button id="notifBtn" class="hdr-btn" onclick="enableNotifications()" title="Enable notifications"><span class="mi mi-sm">notifications_off</span></button>
+          <button id="autoRefreshToggle" class="hdr-btn flex items-center gap-1" title="Auto-refresh (30s)"><span class="mi mi-sm">sync</span> OFF</button>
         </div>
       </div>
     </div>
   </header>
 
   <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-    <div id="mockWarning" class="mock-warning mt-4">⚠️ <span><strong>Mock Data</strong> — Prices are simulated.</span><span id="mockErrorDetail" class="text-xs opacity-70 ml-2"></span></div>
+    <div id="mockWarning" class="mock-warning mt-4"><span class="mi mi-sm">warning</span> <span><strong>Mock Data</strong> — Prices are simulated.</span><span id="mockErrorDetail" class="text-xs opacity-70 ml-2"></span></div>
   </div>
 
   <div class="max-w-7xl mx-auto px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
     <!-- Watchlist -->
     <div class="mb-6">
-      <h3 class="md-headline-small mb-3" style="color:var(--md-primary);">📋 Watchlist</h3>
+      <h3 class="md-headline-small mb-3 flex items-center gap-2" style="color:var(--md-primary);"><span class="mi mi-sm">visibility</span> Watchlist</h3>
       <div id="watchlistGrid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
         <div class="m3-card" style="padding:16px;"><p class="md-body-medium" style="color:var(--md-on-sv);">Loading...</p></div>
       </div>
@@ -127,8 +131,8 @@
         </select>
       </div>
       <div class="flex items-end gap-2">
-        <button id="predictBtn" class="m3-btn m3-btn-s flex-1 py-3">✦ Predict</button>
-        <button id="refreshBtn" class="m3-btn m3-btn-p flex-1 py-3">↻ Refresh</button>
+        <button id="predictBtn" class="m3-btn m3-btn-s flex-1 py-3"><span class="mi mi-sm">auto_awesome</span> Predict</button>
+        <button id="refreshBtn" class="m3-btn m3-btn-p flex-1 py-3"><span class="mi mi-sm">refresh</span> Refresh</button>
       </div>
     </div>
 
@@ -157,7 +161,7 @@
         </div>
         <!-- Signal -->
         <div class="m3-card">
-          <h3 class="md-headline-small mb-4" style="color:var(--md-primary);">Trading Signal</h3>
+          <h3 class="md-headline-small mb-4 flex items-center gap-2" style="color:var(--md-primary);"><span class="mi mi-sm">show_chart</span> Trading Signal</h3>
           <div id="signalBox" class="rounded-2xl p-5 text-center space-y-3" style="border:1.5px solid rgba(125,211,252,0.3);background:rgba(125,211,252,0.04);">
             <div id="signalAction" class="text-3xl sm:text-4xl font-bold" style="color:var(--md-primary);">ANALYZING...</div>
             <div class="space-y-2">
@@ -171,7 +175,7 @@
         </div>
         <!-- Margins -->
         <div class="m3-card">
-          <h3 class="md-headline-small mb-4" style="color:var(--md-primary);">Trading Margins</h3>
+          <h3 class="md-headline-small mb-4 flex items-center gap-2" style="color:var(--md-primary);"><span class="mi mi-sm">account_balance</span> Trading Margins</h3>
           <div class="space-y-3">
             <div class="m3-stat-row"><span class="md-body-medium" style="color:var(--md-on-sv);">Entry Price</span><strong id="entryPrice" class="md-label-large" style="color:var(--md-primary);">$0.00</strong></div>
             <div class="m3-stat-row"><span class="md-body-medium" style="color:var(--md-on-sv);">Stop Loss</span><strong id="stopLoss" class="md-label-large" style="color:var(--md-tertiary);">$0.00</strong></div>
@@ -183,7 +187,7 @@
       <div class="lg:col-span-2">
         <div class="m3-card h-full">
           <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
-            <h3 class="md-headline-small" style="color:var(--md-primary);">Price Chart</h3>
+            <h3 class="md-headline-small flex items-center gap-2" style="color:var(--md-primary);"><span class="mi mi-sm">ssid_chart</span> Price Chart</h3>
             <div class="flex gap-2">
               <button class="tf-btn" data-tf="5M">5M</button>
               <button class="tf-btn" data-tf="15M">15M</button>
@@ -208,14 +212,14 @@
     <!-- Predictions & Stats & Accuracy -->
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
       <div class="m3-card">
-        <h3 class="md-headline-small mb-4" style="color:var(--md-primary);">Next 5 Predictions</h3>
+        <h3 class="md-headline-small mb-4 flex items-center gap-2" style="color:var(--md-primary);"><span class="mi mi-sm">trending_up</span> Next 5 Predictions</h3>
         <div class="space-y-2">
           <div class="grid grid-cols-3 gap-2 pb-3 mb-1" style="border-bottom:1px solid var(--md-outline);"><span class="md-label-medium" style="color:var(--md-on-sv);">Period</span><span class="md-label-medium" style="color:var(--md-on-sv);">Price</span><span class="md-label-medium" style="color:var(--md-on-sv);">Change</span></div>
           <div id="predictionsTable"><div class="text-center py-6"><p class="md-body-medium" style="color:var(--md-on-sv);">Run prediction to see forecasts</p></div></div>
         </div>
       </div>
       <div class="m3-card">
-        <h3 class="md-headline-small mb-4" style="color:var(--md-primary);">Quick Stats</h3>
+        <h3 class="md-headline-small mb-4 flex items-center gap-2" style="color:var(--md-primary);"><span class="mi mi-sm">analytics</span> Quick Stats</h3>
         <div class="space-y-3">
           <div class="m3-stat-row"><span class="md-body-medium" style="color:var(--md-on-sv);">Total Predictions</span><span id="totalPredictions" class="md-label-large" style="color:var(--md-primary);">0</span></div>
           <div class="m3-stat-row"><span class="md-body-medium" style="color:var(--md-on-sv);">Buy Signals</span><span id="buyCount" class="md-label-large" style="color:var(--md-secondary);">0</span></div>
@@ -225,7 +229,7 @@
       </div>
       <!-- Accuracy Tracker -->
       <div class="m3-card">
-        <h3 class="md-headline-small mb-4" style="color:var(--md-primary);">🎯 Accuracy Tracker</h3>
+        <h3 class="md-headline-small mb-4 flex items-center gap-2" style="color:var(--md-primary);"><span class="mi mi-sm">target</span> Accuracy Tracker</h3>
         <div class="text-center mb-4">
           <div id="accuracyPercent" class="text-4xl font-bold" style="color:var(--md-primary);">--</div>
           <p class="md-label-medium mt-1" style="color:var(--md-on-sv);">Direction Accuracy</p>
@@ -239,7 +243,7 @@
     <!-- Alerts & News -->
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
       <div class="m3-card">
-        <h3 class="md-headline-small mb-4" style="color:var(--md-primary);">⏰ Price Alerts</h3>
+        <h3 class="md-headline-small mb-4 flex items-center gap-2" style="color:var(--md-primary);"><span class="mi mi-sm">notifications_active</span> Price Alerts</h3>
         <div class="space-y-3 mb-4">
           <div class="grid grid-cols-2 gap-2">
             <select id="alertSymbol" class="m3-select text-sm" style="padding:8px 12px;">
@@ -250,19 +254,19 @@
             <select id="alertCondition" class="m3-select text-sm" style="padding:8px 12px;"><option value="above">Price Above</option><option value="below">Price Below</option></select>
           </div>
           <input id="alertPrice" type="number" step="any" placeholder="Target price..." class="m3-input">
-          <button id="addAlertBtn" class="m3-btn m3-btn-s w-full py-2.5">+ Add Alert</button>
+          <button id="addAlertBtn" class="m3-btn m3-btn-s w-full py-2.5"><span class="mi mi-sm">add_alert</span> Add Alert</button>
         </div>
         <div id="alertsList" class="space-y-2 max-h-48 overflow-y-auto m3-scroll"><p class="md-body-medium text-center py-3" style="color:var(--md-on-sv);">No alerts set</p></div>
       </div>
       <div class="m3-card">
-        <div class="flex items-center justify-between mb-4"><h3 class="md-headline-small" style="color:var(--md-primary);">📰 Economic Calendar</h3><button id="refreshNews" class="m3-btn m3-btn-p text-xs py-1.5 px-3">Refresh</button></div>
+        <div class="flex items-center justify-between mb-4"><h3 class="md-headline-small flex items-center gap-2" style="color:var(--md-primary);"><span class="mi mi-sm">newspaper</span> Economic Calendar</h3><button id="refreshNews" class="m3-btn m3-btn-p text-xs py-1.5 px-3"><span class="mi mi-xs">refresh</span></button></div>
         <div id="newsFeed" class="space-y-2 max-h-72 overflow-y-auto m3-scroll"><p class="md-body-medium text-center py-3" style="color:var(--md-on-sv);">Loading news...</p></div>
       </div>
     </div>
 
     <!-- History -->
     <div class="m3-card">
-      <div class="flex items-center justify-between mb-5"><h3 class="md-headline-small" style="color:var(--md-primary);">Recent Predictions History</h3><button onclick="clearHistory()" class="m3-btn m3-btn-t text-sm">Clear</button></div>
+      <div class="flex items-center justify-between mb-5"><h3 class="md-headline-small flex items-center gap-2" style="color:var(--md-primary);"><span class="mi mi-sm">history</span> Recent Predictions</h3><button onclick="clearHistory()" class="m3-btn m3-btn-t text-sm"><span class="mi mi-xs">delete</span> Clear</button></div>
       <div id="historyContainer" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 max-h-96 overflow-y-auto m3-scroll">
         <div class="col-span-full text-center py-8"><p class="md-body-medium" style="color:var(--md-on-sv);">No predictions yet</p></div>
       </div>

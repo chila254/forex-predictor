@@ -31,6 +31,7 @@ var TV_INTERVALS = { '5M':'5', '15M':'15', '1H':'60', '4H':'240', 'D':'D' };
 // ========== Init ==========
 document.addEventListener('DOMContentLoaded', function() {
   loadTheme();
+  checkNotifState();
   setupEventListeners();
   initTradingView();
   loadInitialData();
@@ -68,7 +69,7 @@ function setupEventListeners() {
 function loadTheme() {
   var saved = localStorage.getItem('fx_theme') || 'dark';
   document.documentElement.setAttribute('data-theme', saved);
-  document.getElementById('themeToggle').textContent = saved === 'dark' ? '🌙' : '☀️';
+  document.getElementById('themeToggle').innerHTML = '<span class="mi mi-sm">' + (saved === 'dark' ? 'dark_mode' : 'light_mode') + '</span>';
 }
 
 function toggleTheme() {
@@ -76,7 +77,7 @@ function toggleTheme() {
   var next = current === 'dark' ? 'light' : 'dark';
   document.documentElement.setAttribute('data-theme', next);
   localStorage.setItem('fx_theme', next);
-  document.getElementById('themeToggle').textContent = next === 'dark' ? '🌙' : '☀️';
+  document.getElementById('themeToggle').innerHTML = '<span class="mi mi-sm">' + (next === 'dark' ? 'dark_mode' : 'light_mode') + '</span>';
   initTradingView();
 }
 
@@ -112,17 +113,35 @@ function initTradingView() {
 // ========== Notifications ==========
 function enableNotifications() {
   if (!('Notification' in window)) {
-    showToast('Browser does not support notifications', 'warning');
+    showToast('Your browser does not support notifications', 'warning');
+    return;
+  }
+  if (Notification.permission === 'denied') {
+    showToast('Notifications were blocked. Go to your browser settings → Site permissions → Notifications → Allow for this site, then refresh.', 'error', 8000);
+    return;
+  }
+  if (Notification.permission === 'granted') {
+    showToast('Notifications already enabled!', 'success');
+    document.getElementById('notifBtn').innerHTML = '<span class="mi mi-sm">notifications_active</span>';
     return;
   }
   Notification.requestPermission().then(function(perm) {
     if (perm === 'granted') {
       showToast('Notifications enabled!', 'success');
-      document.getElementById('notifBtn').textContent = '🔔';
+      document.getElementById('notifBtn').innerHTML = '<span class="mi mi-sm">notifications_active</span>';
+      playAlertSound();
+    } else if (perm === 'denied') {
+      showToast('Notifications blocked. You can enable them in browser settings → Site permissions.', 'error', 6000);
     } else {
-      showToast('Notifications blocked by browser', 'warning');
+      showToast('Notification permission dismissed. Click again to retry.', 'warning');
     }
   });
+}
+
+function checkNotifState() {
+  if ('Notification' in window && Notification.permission === 'granted') {
+    document.getElementById('notifBtn').innerHTML = '<span class="mi mi-sm">notifications_active</span>';
+  }
 }
 
 function playAlertSound() {
@@ -154,11 +173,11 @@ function updateDataSourceBadge(source, errorMsg) {
   currentDataSource = source;
   if (source === 'live') {
     badge.style.background = 'rgba(134,239,172,0.1)'; badge.style.color = '#86efac';
-    dot.textContent = '🟢'; text.textContent = 'LIVE DATA';
+    dot.textContent = 'circle'; text.textContent = 'LIVE DATA';
     warning.classList.remove('visible');
   } else {
     badge.style.background = 'rgba(252,165,165,0.1)'; badge.style.color = '#fca5a5';
-    dot.textContent = '🔴'; text.textContent = 'MOCK DATA';
+    dot.textContent = 'circle'; text.textContent = 'MOCK DATA';
     warning.classList.add('visible');
     if (errorMsg) errorDetail.textContent = '(' + errorMsg + ')';
   }
@@ -168,7 +187,7 @@ function updateDataSourceBadge(source, errorMsg) {
 function setLoading(isLoading) {
   var btn = document.getElementById('predictBtn');
   btn.disabled = isLoading;
-  btn.innerHTML = isLoading ? '⏳ Loading...' : '✦ Predict';
+  btn.innerHTML = isLoading ? '<span class="mi mi-sm">hourglass_empty</span> Loading...' : '<span class="mi mi-sm">auto_awesome</span> Predict';
   btn.style.opacity = isLoading ? '0.7' : '1';
 }
 
@@ -188,11 +207,11 @@ function toggleAutoRefresh() {
   var btn = document.getElementById('autoRefreshToggle');
   autoRefreshEnabled = !autoRefreshEnabled;
   if (autoRefreshEnabled) {
-    btn.innerHTML = '↻ ON'; btn.style.color = '#86efac';
+    btn.innerHTML = '<span class="mi mi-sm">sync</span> ON'; btn.style.color = '#86efac';
     autoRefreshInterval = setInterval(function() { loadInitialData(true); loadWatchlist(); checkAlerts(); checkPredictionAccuracy(); }, 30000);
     showToast('Auto-refresh enabled (30s)', 'success');
   } else {
-    btn.innerHTML = '↻ OFF'; btn.style.color = '';
+    btn.innerHTML = '<span class="mi mi-sm">sync_disabled</span> OFF'; btn.style.color = '';
     if (autoRefreshInterval) clearInterval(autoRefreshInterval);
     autoRefreshInterval = null;
     showToast('Auto-refresh disabled', 'info');
@@ -224,7 +243,7 @@ async function loadWatchlist() {
         '<span class="md-label-small px-2 py-0.5 rounded" style="background:' + cb + ';color:' + cc + ';">' + (change >= 0 ? '+' : '') + change.toFixed(2) + '%</span>' +
         '</div>' +
         '<div class="md-headline-small" style="color:var(--md-primary);">' + parseFloat(p.price).toFixed(dp) + '</div>' +
-        '<div class="md-label-small mt-1" style="color:var(--md-on-sv);">' + (p.source === 'live' ? '🟢' : '🔴') + '</div>' +
+        '<div class="md-label-small mt-1" style="color:' + (p.source === 'live' ? '#86efac' : '#fca5a5') + ';"><span class="mi mi-xs">circle</span></div>' +
         '</div>';
     });
     container.innerHTML = html;
@@ -372,11 +391,12 @@ function renderAlerts(alerts) {
   var c = document.getElementById('alertsList');
   if (!alerts || !alerts.length) { c.innerHTML = '<p class="md-body-medium text-center py-3" style="color:var(--md-on-sv);">No alerts set</p>'; return; }
   c.innerHTML = alerts.map(function(a) {
-    var icon = a.condition === 'above' ? '📈' : '📉';
+    var icon = a.condition === 'above' ? 'trending_up' : 'trending_down';
+    var iconColor = a.condition === 'above' ? '#86efac' : '#fca5a5';
     return '<div class="m3-stat-row' + (a.triggered ? ' opacity-50' : '') + '">' +
-      '<div class="flex items-center gap-2"><span>' + icon + '</span><span class="md-body-medium">' + a.symbol + ' ' + a.condition + ' $' + a.targetPrice.toFixed(2) + '</span>' +
-      (a.triggered ? '<span class="text-xs" style="color:#fcd34d;">✓</span>' : '') + '</div>' +
-      '<button onclick="deleteAlert(\'' + a.id + '\')" style="color:#fca5a5;cursor:pointer;background:none;border:none;font-size:1rem;">✕</button></div>';
+      '<div class="flex items-center gap-2"><span class="mi mi-sm" style="color:' + iconColor + ';">' + icon + '</span><span class="md-body-medium">' + a.symbol + ' ' + a.condition + ' $' + a.targetPrice.toFixed(2) + '</span>' +
+      (a.triggered ? '<span class="mi mi-xs" style="color:#fcd34d;">check_circle</span>' : '') + '</div>' +
+      '<button onclick="deleteAlert(\'' + a.id + '\')" style="color:#fca5a5;cursor:pointer;background:none;border:none;"><span class="mi mi-sm">close</span></button></div>';
   }).join('');
 }
 
