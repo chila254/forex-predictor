@@ -29,6 +29,7 @@ const priceRoutes = require('./routes/prices');
 const predictionRoutes = require('./routes/predictions');
 const newsRoutes = require('./routes/news');
 const alertRoutes = require('./routes/alerts');
+const analysisRoutes = require('./routes/analysis');
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -40,6 +41,7 @@ app.use('/api/prices', priceRoutes);
 app.use('/api/predictions', predictionRoutes);
 app.use('/api/news', newsRoutes);
 app.use('/api/alerts', alertRoutes);
+app.use('/api/analysis', analysisRoutes);
 
 // Serve dashboard for root path
 app.get('/', (req, res) => {

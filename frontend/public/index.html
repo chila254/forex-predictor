@@ -264,6 +264,99 @@
       </div>
     </div>
 
+    <!-- Multi-Timeframe Analysis -->
+    <div class="m3-card mb-6">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="md-headline-small flex items-center gap-2" style="color:var(--md-primary);"><span class="mi mi-sm">view_timeline</span> Multi-Timeframe Analysis</h3>
+        <button id="refreshMtfBtn" class="m3-btn m3-btn-p text-xs py-1.5 px-3"><span class="mi mi-xs">refresh</span></button>
+      </div>
+      <div id="mtfGrid" class="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div class="m3-indicator-card"><p class="md-body-medium" style="color:var(--md-on-sv);">Click Predict first</p></div>
+      </div>
+      <div class="mt-4 flex items-center justify-between p-3 rounded-xl" style="background:var(--md-sch);">
+        <span class="md-label-medium" style="color:var(--md-on-sv);">Consensus</span>
+        <span id="mtfConsensus" class="md-label-large" style="color:var(--md-primary);">--</span>
+        <span id="mtfAgreement" class="md-label-medium" style="color:var(--md-on-sv);">--</span>
+      </div>
+    </div>
+
+    <!-- Correlation Matrix -->
+    <div class="m3-card mb-6">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="md-headline-small flex items-center gap-2" style="color:var(--md-primary);"><span class="mi mi-sm">grid_view</span> Correlation Matrix</h3>
+        <button id="refreshCorrBtn" class="m3-btn m3-btn-p text-xs py-1.5 px-3"><span class="mi mi-xs">refresh</span></button>
+      </div>
+      <div id="corrMatrix" class="overflow-x-auto"><p class="md-body-medium text-center py-4" style="color:var(--md-on-sv);">Loading...</p></div>
+    </div>
+
+    <!-- Risk Calculator -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+      <div class="m3-card">
+        <h3 class="md-headline-small mb-4 flex items-center gap-2" style="color:var(--md-primary);"><span class="mi mi-sm">calculate</span> Risk Calculator</h3>
+        <div class="space-y-3">
+          <div>
+            <label class="md-label-medium block mb-1" style="color:var(--md-on-sv);">Account Balance ($)</label>
+            <input id="riskBalance" type="number" value="10000" class="m3-input">
+          </div>
+          <div>
+            <label class="md-label-medium block mb-1" style="color:var(--md-on-sv);">Risk per Trade (%)</label>
+            <input id="riskPercent" type="number" value="2" step="0.5" min="0.5" max="10" class="m3-input">
+          </div>
+          <div>
+            <label class="md-label-medium block mb-1" style="color:var(--md-on-sv);">Stop Loss (pips)</label>
+            <input id="riskStopPips" type="number" value="30" class="m3-input">
+          </div>
+          <div>
+            <label class="md-label-medium block mb-1" style="color:var(--md-on-sv);">Pair</label>
+            <select id="riskPair" class="m3-select text-sm" style="padding:8px 12px;">
+              <option value="EURUSD">EUR/USD</option><option value="GBPUSD">GBP/USD</option><option value="USDJPY">USD/JPY</option>
+              <option value="USDCHF">USD/CHF</option><option value="AUDUSD">AUD/USD</option><option value="USDCAD">USD/CAD</option>
+              <option value="NZDUSD">NZD/USD</option><option value="XAUUSD">XAU/USD</option>
+            </select>
+          </div>
+          <button onclick="calculateRisk()" class="m3-btn m3-btn-s w-full py-2.5"><span class="mi mi-sm">calculate</span> Calculate</button>
+        </div>
+        <div id="riskResults" class="mt-4 space-y-2" style="display:none;">
+          <div class="m3-stat-row"><span class="md-body-medium" style="color:var(--md-on-sv);">Risk Amount</span><strong id="riskAmount" class="md-label-large" style="color:var(--md-tertiary);">$0</strong></div>
+          <div class="m3-stat-row"><span class="md-body-medium" style="color:var(--md-on-sv);">Position Size</span><strong id="riskLots" class="md-label-large" style="color:var(--md-primary);">0 lots</strong></div>
+          <div class="m3-stat-row"><span class="md-body-medium" style="color:var(--md-on-sv);">Units</span><strong id="riskUnits" class="md-label-large" style="color:var(--md-secondary);">0</strong></div>
+          <div class="m3-stat-row"><span class="md-body-medium" style="color:var(--md-on-sv);">Reward (1:2 R:R)</span><strong id="riskReward" class="md-label-large" style="color:var(--md-secondary);">$0</strong></div>
+        </div>
+      </div>
+
+      <!-- Trade Journal -->
+      <div class="m3-card">
+        <h3 class="md-headline-small mb-4 flex items-center gap-2" style="color:var(--md-primary);"><span class="mi mi-sm">menu_book</span> Trade Journal</h3>
+        <div class="space-y-3 mb-4">
+          <div class="grid grid-cols-2 gap-2">
+            <select id="journalPair" class="m3-select text-sm" style="padding:8px 12px;">
+              <option value="EURUSD">EUR/USD</option><option value="GBPUSD">GBP/USD</option><option value="USDJPY">USD/JPY</option>
+              <option value="XAUUSD">XAU/USD</option><option value="USDCHF">USD/CHF</option><option value="AUDUSD">AUD/USD</option>
+            </select>
+            <select id="journalAction" class="m3-select text-sm" style="padding:8px 12px;">
+              <option value="BUY">BUY</option><option value="SELL">SELL</option>
+            </select>
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <input id="journalEntry" type="number" step="any" placeholder="Entry price" class="m3-input">
+            <input id="journalExit" type="number" step="any" placeholder="Exit price" class="m3-input">
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <input id="journalLots" type="number" step="0.01" value="0.1" placeholder="Lots" class="m3-input">
+            <input id="journalNotes" type="text" placeholder="Notes..." class="m3-input">
+          </div>
+          <button onclick="addJournalEntry()" class="m3-btn m3-btn-s w-full py-2.5"><span class="mi mi-sm">add</span> Log Trade</button>
+        </div>
+        <div id="journalStats" class="grid grid-cols-3 gap-2 mb-3" style="display:none;">
+          <div class="text-center p-2 rounded-lg" style="background:var(--md-sch);"><p class="md-label-small" style="color:var(--md-on-sv);">Total P&L</p><p id="journalPnl" class="md-label-large" style="color:var(--md-primary);">$0</p></div>
+          <div class="text-center p-2 rounded-lg" style="background:var(--md-sch);"><p class="md-label-small" style="color:var(--md-on-sv);">Win Rate</p><p id="journalWinRate" class="md-label-large" style="color:var(--md-secondary);">0%</p></div>
+          <div class="text-center p-2 rounded-lg" style="background:var(--md-sch);"><p class="md-label-small" style="color:var(--md-on-sv);">Trades</p><p id="journalCount" class="md-label-large" style="color:var(--md-on-surface);">0</p></div>
+        </div>
+        <div id="journalList" class="space-y-2 max-h-48 overflow-y-auto m3-scroll"><p class="md-body-medium text-center py-3" style="color:var(--md-on-sv);">No trades logged</p></div>
+        <button onclick="clearJournal()" class="m3-btn m3-btn-t text-xs mt-3"><span class="mi mi-xs">delete</span> Clear Journal</button>
+      </div>
+    </div>
+
     <!-- History -->
     <div class="m3-card">
       <div class="flex items-center justify-between mb-5"><h3 class="md-headline-small flex items-center gap-2" style="color:var(--md-primary);"><span class="mi mi-sm">history</span> Recent Predictions</h3><button onclick="clearHistory()" class="m3-btn m3-btn-t text-sm"><span class="mi mi-xs">delete</span> Clear</button></div>

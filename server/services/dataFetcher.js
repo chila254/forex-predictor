@@ -22,8 +22,52 @@ const BASE_PRICES = {
 const priceCache = new Map();
 const CACHE_TTL = 30 * 1000; // 30 seconds
 const GOLD_CACHE_TTL = 60 * 1000; // 60 seconds (GoldAPI free = 100 reqs/month)
+const ER_CACHE_TTL = 60 * 1000; // 60 seconds for ExchangeRate-API
 
 class DataFetcher {
+
+  // ===== EXCHANGERATE-API (PRIMARY for forex) =====
+
+  async getExchangeRatePrice(symbol) {
+    const base = symbol.slice(0, 3);
+    const quote = symbol.slice(3);
+
+    const cacheKey = `er_${symbol}`;
+    const cached = priceCache.get(cacheKey);
+    if (cached && (Date.now() - cached.time) < ER_CACHE_TTL) {
+      console.log(`[DataFetcher] Cache hit for ${symbol} (ExchangeRate-API)`);
+      return { ...cached.data, source: 'live' };
+    }
+
+    console.log(`[DataFetcher] Fetching ${symbol} from ExchangeRate-API (base=${base})`);
+
+    const response = await axios.get(`https://open.er-api.com/v6/latest/${base}`, {
+      timeout: 5000
+    });
+
+    const d = response.data;
+    if (d.result !== 'success' || !d.rates || !d.rates[quote]) {
+      throw new Error(`ExchangeRate-API: no rate for ${quote} from base ${base}`);
+    }
+
+    const price = d.rates[quote];
+    const basePrice = BASE_PRICES[symbol] || price;
+    const variation = basePrice * 0.002;
+
+    const result = {
+      symbol,
+      price,
+      high: price + Math.random() * variation,
+      low: price - Math.random() * variation,
+      open: basePrice,
+      close: basePrice,
+      volume: 0,
+      timestamp: new Date(),
+    };
+
+    priceCache.set(cacheKey, { data: result, time: Date.now() });
+    return { ...result, source: 'live' };
+  }
 
   // ===== GOLD-SPECIFIC METHODS (GoldAPI.io) =====
 
@@ -47,7 +91,7 @@ class DataFetcher {
           'x-access-token': GOLD_API_KEY,
           'Content-Type': 'application/json'
         },
-        timeout: 10000
+        timeout: 5000
       });
 
       const d = response.data;
@@ -110,7 +154,7 @@ class DataFetcher {
           symbol: tdSymbol,
           apikey: TWELVE_DATA_API_KEY
         },
-        timeout: 10000
+        timeout: 5000
       });
 
       const d = response.data;
@@ -170,7 +214,7 @@ class DataFetcher {
           outputsize: 100,
           apikey: TWELVE_DATA_API_KEY
         },
-        timeout: 10000
+        timeout: 5000
       });
 
       const d = response.data;
@@ -254,6 +298,14 @@ class DataFetcher {
   async getPriceData(symbol) {
     if (symbol === 'XAUUSD' && GOLD_API_KEY) {
       return this.getGoldPrice();
+    }
+    // Try ExchangeRate-API first for forex pairs (not XAUUSD)
+    if (symbol !== 'XAUUSD') {
+      try {
+        return await this.getExchangeRatePrice(symbol);
+      } catch (err) {
+        console.log(`[DataFetcher] ExchangeRate-API failed for ${symbol}: ${err.message}, trying Twelve Data`);
+      }
     }
     return this.getTwelveDataPrice(symbol);
   }

@@ -39,6 +39,8 @@ document.addEventListener('DOMContentLoaded', function() {
   loadAlerts();
   loadNews();
   loadWatchlist();
+  loadJournal();
+  loadCorrelation();
 });
 
 function setupEventListeners() {
@@ -54,6 +56,8 @@ function setupEventListeners() {
   document.getElementById('autoRefreshToggle').addEventListener('click', toggleAutoRefresh);
   document.getElementById('addAlertBtn').addEventListener('click', addAlert);
   document.getElementById('refreshNews').addEventListener('click', loadNews);
+  document.getElementById('refreshMtfBtn').addEventListener('click', loadMultiTimeframe);
+  document.getElementById('refreshCorrBtn').addEventListener('click', loadCorrelation);
 
   document.querySelectorAll('.tf-btn[data-tf]').forEach(function(btn) {
     btn.addEventListener('click', function() {
@@ -306,6 +310,7 @@ async function getPrediction() {
     updateIndicators(prediction.indicators);
     updatePredictionsTable(prediction.predictions, prediction.currentPrice);
     savePredictionToHistory(prediction);
+    loadMultiTimeframe();
     var tt = prediction.signal.action === 'BUY' ? 'success' : prediction.signal.action === 'SELL' ? 'warning' : 'info';
     showToast(prediction.signal.action + ' (' + Math.round(prediction.signal.confidence * 100) + '% confidence)', tt);
   } catch (error) {
@@ -431,7 +436,8 @@ async function loadNews() {
     if (data.success && data.news.length > 0) {
       c.innerHTML = data.news.map(function(item) {
         var ic = item.impact === 'High' ? 'news-impact-high' : item.impact === 'Medium' ? 'news-impact-medium' : 'news-impact-low';
-        var dot = item.impact === 'High' ? '🔴' : item.impact === 'Medium' ? '🟡' : '🟢';
+        var dotColor = item.impact === 'High' ? '#fca5a5' : item.impact === 'Medium' ? '#fcd34d' : '#86efac';
+        var dot = '<span class="mi mi-xs" style="color:' + dotColor + ';">circle</span>';
         return '<div class="m3-stat-row"><div style="flex:1;min-width:0;">' +
           '<div class="flex items-center gap-2" style="margin-bottom:2px;"><span class="text-xs">' + dot + '</span><span class="md-label-medium ' + ic + '">' + (item.impact || 'Low') + '</span><span class="md-label-small" style="color:var(--md-on-sv);">' + (item.country || '') + '</span></div>' +
           '<p class="md-body-medium" style="color:var(--md-on-surface);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + item.title + '</p>' +
@@ -548,5 +554,197 @@ function clearHistory() {
     localStorage.removeItem('predictionHistory');
     updateHistoryDisplay();
     showToast('History cleared', 'info');
+  }
+}
+
+// ========== Multi-Timeframe Analysis ==========
+async function loadMultiTimeframe() {
+  try {
+    var response = await fetch('/api/analysis/multi-timeframe/' + currentAsset);
+    var data = await response.json();
+    if (!data.success) return;
+    var grid = document.getElementById('mtfGrid');
+    var tfs = data.timeframes;
+    var html = '';
+    var keys = ['short', 'medium', 'long', 'daily'];
+    keys.forEach(function(key) {
+      var tf = tfs[key];
+      var sc = tf.signal === 'BUY' ? '#86efac' : tf.signal === 'SELL' ? '#fca5a5' : '#fde047';
+      var confPct = Math.round(tf.confidence * 100);
+      html += '<div class="m3-indicator-card">' +
+        '<p class="md-label-medium mb-1" style="color:var(--md-on-sv);">' + tf.label + '</p>' +
+        '<div class="text-xl font-bold mb-1" style="color:' + sc + ';">' + tf.signal + '</div>' +
+        '<div class="m3-progress-track mb-1" style="height:4px;"><div class="m3-progress-fill" style="width:' + confPct + '%;background:' + sc + ';height:100%;"></div></div>' +
+        '<p class="md-label-small" style="color:var(--md-on-sv);">' + confPct + '% · RSI ' + tf.rsi.toFixed(1) + '</p>' +
+        '</div>';
+    });
+    grid.innerHTML = html;
+    var cc = data.consensus === 'BUY' ? '#86efac' : data.consensus === 'SELL' ? '#fca5a5' : '#fde047';
+    document.getElementById('mtfConsensus').innerHTML = '<span style="color:' + cc + ';">' + data.consensus + '</span>';
+    document.getElementById('mtfAgreement').textContent = data.agreement + '% agreement';
+  } catch(e) { console.error('MTF error:', e); }
+}
+
+// ========== Correlation Matrix ==========
+async function loadCorrelation() {
+  try {
+    var response = await fetch('/api/analysis/correlation');
+    var data = await response.json();
+    if (!data.success) return;
+    var pairs = data.pairs;
+    var matrix = data.matrix;
+    var html = '<table style="width:100%;border-collapse:collapse;font-size:0.75rem;">';
+    html += '<tr><th style="padding:6px;"></th>';
+    pairs.forEach(function(p) {
+      html += '<th style="padding:6px;color:var(--md-on-sv);font-weight:500;">' + p.slice(0,3) + '<br>' + p.slice(3) + '</th>';
+    });
+    html += '</tr>';
+    for (var i = 0; i < pairs.length; i++) {
+      html += '<tr><td style="padding:6px;font-weight:600;color:var(--md-on-surface);">' + pairs[i].slice(0,3) + '/' + pairs[i].slice(3) + '</td>';
+      for (var j = 0; j < pairs.length; j++) {
+        var val = matrix[i][j];
+        var color = val > 0.5 ? '#86efac' : val < -0.5 ? '#fca5a5' : val > 0.2 ? 'rgba(134,239,172,0.5)' : val < -0.2 ? 'rgba(252,165,165,0.5)' : 'var(--md-on-sv)';
+        var bg = i === j ? 'var(--md-sch)' : 'transparent';
+        html += '<td style="padding:6px;text-align:center;color:' + color + ';background:' + bg + ';border-radius:4px;font-weight:' + (Math.abs(val) > 0.7 ? '700' : '400') + ';">' + (i === j ? '1.00' : val.toFixed(2)) + '</td>';
+      }
+      html += '</tr>';
+    }
+    html += '</table>';
+    document.getElementById('corrMatrix').innerHTML = html;
+  } catch(e) { console.error('Correlation error:', e); }
+}
+
+// ========== Risk Calculator ==========
+function calculateRisk() {
+  var balance = parseFloat(document.getElementById('riskBalance').value) || 10000;
+  var riskPct = parseFloat(document.getElementById('riskPercent').value) || 2;
+  var stopPips = parseFloat(document.getElementById('riskStopPips').value) || 30;
+  var pair = document.getElementById('riskPair').value;
+
+  var riskAmount = balance * (riskPct / 100);
+  // Pip value depends on pair - for most USD pairs, 1 standard lot = $10/pip
+  // For JPY pairs, pip value is different
+  var pipValue = 10; // $ per pip per standard lot
+  if (pair === 'USDJPY' || pair === 'EURJPY') pipValue = 100 / 150; // approximate for JPY pairs
+  if (pair === 'XAUUSD') pipValue = 1; // Gold: 1 pip = $0.01, lot = 100oz, so $1/pip
+
+  var lots = riskAmount / (stopPips * pipValue);
+  var units = Math.round(lots * 100000);
+  var reward = riskAmount * 2; // 1:2 risk reward
+
+  document.getElementById('riskResults').style.display = 'block';
+  document.getElementById('riskAmount').textContent = '$' + riskAmount.toFixed(2);
+  document.getElementById('riskLots').textContent = lots.toFixed(2) + ' lots';
+  document.getElementById('riskUnits').textContent = units.toLocaleString();
+  document.getElementById('riskReward').textContent = '$' + reward.toFixed(2);
+  showToast('Risk calculated: ' + lots.toFixed(2) + ' lots', 'success');
+}
+
+// ========== Trade Journal ==========
+var tradeJournal = [];
+
+function loadJournal() {
+  try {
+    var stored = localStorage.getItem('tradeJournal');
+    if (stored) { tradeJournal = JSON.parse(stored); renderJournal(); }
+  } catch(e) {}
+}
+
+function addJournalEntry() {
+  var pair = document.getElementById('journalPair').value;
+  var action = document.getElementById('journalAction').value;
+  var entry = parseFloat(document.getElementById('journalEntry').value);
+  var exit = parseFloat(document.getElementById('journalExit').value);
+  var lots = parseFloat(document.getElementById('journalLots').value) || 0.1;
+  var notes = document.getElementById('journalNotes').value;
+
+  if (!entry || !exit) { showToast('Enter both entry and exit prices', 'warning'); return; }
+
+  var pipDiff;
+  if (pair === 'USDJPY' || pair === 'EURJPY') {
+    pipDiff = (exit - entry) * 100;
+  } else if (pair === 'XAUUSD') {
+    pipDiff = (exit - entry) * 10;
+  } else {
+    pipDiff = (exit - entry) * 10000;
+  }
+  if (action === 'SELL') pipDiff = -pipDiff;
+
+  var pipValue = 10;
+  if (pair === 'USDJPY' || pair === 'EURJPY') pipValue = 100 / 150;
+  if (pair === 'XAUUSD') pipValue = 1;
+
+  var pnl = pipDiff * lots * pipValue;
+
+  tradeJournal.unshift({
+    id: Date.now(),
+    date: new Date().toISOString(),
+    pair: pair,
+    action: action,
+    entry: entry,
+    exit: exit,
+    lots: lots,
+    pips: pipDiff,
+    pnl: pnl,
+    notes: notes
+  });
+
+  try { localStorage.setItem('tradeJournal', JSON.stringify(tradeJournal)); } catch(e) {}
+  document.getElementById('journalEntry').value = '';
+  document.getElementById('journalExit').value = '';
+  document.getElementById('journalNotes').value = '';
+  showToast((pnl >= 0 ? '+' : '') + '$' + pnl.toFixed(2) + ' (' + pipDiff.toFixed(1) + ' pips)', pnl >= 0 ? 'success' : 'error');
+  renderJournal();
+}
+
+function renderJournal() {
+  var list = document.getElementById('journalList');
+  var stats = document.getElementById('journalStats');
+  if (!tradeJournal.length) {
+    list.innerHTML = '<p class="md-body-medium text-center py-3" style="color:var(--md-on-sv);">No trades logged</p>';
+    stats.style.display = 'none';
+    return;
+  }
+  stats.style.display = 'grid';
+  var totalPnl = tradeJournal.reduce(function(s, t) { return s + t.pnl; }, 0);
+  var wins = tradeJournal.filter(function(t) { return t.pnl > 0; }).length;
+  var winRate = Math.round((wins / tradeJournal.length) * 100);
+  document.getElementById('journalPnl').textContent = (totalPnl >= 0 ? '+$' : '-$') + Math.abs(totalPnl).toFixed(2);
+  document.getElementById('journalPnl').style.color = totalPnl >= 0 ? '#86efac' : '#fca5a5';
+  document.getElementById('journalWinRate').textContent = winRate + '%';
+  document.getElementById('journalWinRate').style.color = winRate >= 50 ? '#86efac' : '#fca5a5';
+  document.getElementById('journalCount').textContent = tradeJournal.length;
+
+  list.innerHTML = tradeJournal.slice(0, 20).map(function(t) {
+    var d = new Date(t.date);
+    var dateStr = d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+    var ac = t.action === 'BUY' ? '#86efac' : '#fca5a5';
+    var pc = t.pnl >= 0 ? '#86efac' : '#fca5a5';
+    return '<div class="m3-stat-row" style="flex-wrap:wrap;gap:4px;">' +
+      '<div class="flex items-center gap-2" style="flex:1;min-width:120px;">' +
+      '<span class="md-label-medium" style="color:' + ac + ';">' + t.action + '</span>' +
+      '<span class="md-body-medium">' + t.pair + '</span>' +
+      '</div>' +
+      '<div style="text-align:right;">' +
+      '<span class="md-label-large" style="color:' + pc + ';">' + (t.pnl >= 0 ? '+' : '') + '$' + t.pnl.toFixed(2) + '</span>' +
+      '<span class="md-label-small block" style="color:var(--md-on-sv);">' + t.pips.toFixed(1) + ' pips · ' + dateStr + '</span>' +
+      '</div>' +
+      '<button onclick="deleteJournalEntry(' + t.id + ')" style="color:#fca5a5;cursor:pointer;background:none;border:none;"><span class="mi mi-xs">close</span></button>' +
+      '</div>';
+  }).join('');
+}
+
+function deleteJournalEntry(id) {
+  tradeJournal = tradeJournal.filter(function(t) { return t.id !== id; });
+  try { localStorage.setItem('tradeJournal', JSON.stringify(tradeJournal)); } catch(e) {}
+  renderJournal();
+}
+
+function clearJournal() {
+  if (confirm('Delete all trade journal entries?')) {
+    tradeJournal = [];
+    localStorage.removeItem('tradeJournal');
+    renderJournal();
+    showToast('Journal cleared', 'info');
   }
 }
