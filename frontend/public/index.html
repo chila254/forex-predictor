@@ -171,6 +171,7 @@
               </div>
               <div class="m3-progress-track"><div id="confidenceBar" class="m3-progress-fill" style="width:0%"></div></div>
             </div>
+            <div id="signalReasons" class="flex flex-wrap gap-1 justify-center mt-2" style="display:none;"></div>
           </div>
         </div>
         <!-- Margins -->
@@ -178,8 +179,9 @@
           <h3 class="md-headline-small mb-4 flex items-center gap-2" style="color:var(--md-primary);"><span class="mi mi-sm">account_balance</span> Trading Margins</h3>
           <div class="space-y-3">
             <div class="m3-stat-row"><span class="md-body-medium" style="color:var(--md-on-sv);">Entry Price</span><strong id="entryPrice" class="md-label-large" style="color:var(--md-primary);">$0.00</strong></div>
-            <div class="m3-stat-row"><span class="md-body-medium" style="color:var(--md-on-sv);">Stop Loss</span><strong id="stopLoss" class="md-label-large" style="color:var(--md-tertiary);">$0.00</strong></div>
-            <div class="m3-stat-row"><span class="md-body-medium" style="color:var(--md-on-sv);">Take Profit</span><strong id="takeProfit" class="md-label-large" style="color:var(--md-secondary);">$0.00</strong></div>
+            <div class="m3-stat-row"><span class="md-body-medium" style="color:var(--md-on-sv);">Stop Loss</span><strong id="stopLoss" class="md-label-large" style="color:var(--md-tertiary);font-size:0.75rem;">$0.00</strong></div>
+            <div class="m3-stat-row"><span class="md-body-medium" style="color:var(--md-on-sv);">Take Profit</span><strong id="takeProfit" class="md-label-large" style="color:var(--md-secondary);font-size:0.75rem;">$0.00</strong></div>
+            <div class="m3-stat-row"><span class="md-body-medium" style="color:var(--md-on-sv);">Risk:Reward</span><strong id="riskRewardRatio" class="md-label-large" style="color:var(--md-primary);">--</strong></div>
           </div>
         </div>
       </div>

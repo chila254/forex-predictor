@@ -334,11 +334,30 @@ function updateSignalDisplay(prediction) {
   var act = document.getElementById('signalAction');
   act.textContent = signal.action; act.style.color = s.color;
   document.getElementById('confidenceBar').style.width = confPercent + '%';
+  document.getElementById('confidenceBar').style.background = s.color;
   document.getElementById('confidencePercent').textContent = confPercent + '%';
+  // Show signal reasons
+  var reasonsEl = document.getElementById('signalReasons');
+  if (reasonsEl && signal.reasons && signal.reasons.length) {
+    reasonsEl.innerHTML = signal.reasons.map(function(r) {
+      return '<span class="md-label-small px-2 py-0.5 rounded" style="background:var(--md-sch);color:var(--md-on-sv);">' + r + '</span>';
+    }).join(' ');
+    reasonsEl.style.display = 'flex';
+  }
+  // Margins with pip values
   var dp = signal.margins.entry > 100 ? 2 : 5;
   document.getElementById('entryPrice').textContent = '$' + parseFloat(signal.margins.entry).toFixed(dp);
-  document.getElementById('stopLoss').textContent = '$' + parseFloat(signal.margins.stop).toFixed(dp);
-  document.getElementById('takeProfit').textContent = '$' + parseFloat(signal.margins.target).toFixed(dp);
+  var slText = '$' + parseFloat(signal.margins.stop).toFixed(dp);
+  var tpText = '$' + parseFloat(signal.margins.target).toFixed(dp);
+  if (signal.margins.slPips) slText += ' (' + signal.margins.slPips + ' pips)';
+  if (signal.margins.tpPips) tpText += ' (' + signal.margins.tpPips + ' pips)';
+  document.getElementById('stopLoss').textContent = slText;
+  document.getElementById('takeProfit').textContent = tpText;
+  // Risk:Reward
+  var rrEl = document.getElementById('riskRewardRatio');
+  if (rrEl && signal.margins.riskReward) {
+    rrEl.textContent = '1:' + signal.margins.riskReward;
+  }
 }
 
 function updateIndicators(indicators) {

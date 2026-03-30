@@ -110,13 +110,24 @@ class PredictionEngine {
     const currentPrice = closes[closes.length - 1];
     const nextPrice = prediction.predictions[0];
     const priceChange = ((nextPrice - currentPrice) / currentPrice) * 100;
+    const currentATR = atr.length > 0 ? atr[atr.length - 1] : currentPrice * 0.001;
+    const currentRSI = rsi[rsi.length - 1];
+    const currentMACD = macd.histogram[macd.histogram.length - 1];
+    const prevMACD = macd.histogram.length > 1 ? macd.histogram[macd.histogram.length - 2] : 0;
+    const currentBB = bbands[bbands.length - 1];
+
+    // EMA trend: compare short EMA vs long EMA for trend direction
+    const ema9 = TechnicalAnalysis.EMA(closes, Math.min(9, closes.length - 1));
+    const ema21 = TechnicalAnalysis.EMA(closes, Math.min(21, closes.length - 1));
+    const emaTrend = ema9[ema9.length - 1] > ema21[ema21.length - 1] ? 'BULL' : 'BEAR';
+
+    // Stochastic for overbought/oversold confirmation
+    const stoch = TechnicalAnalysis.Stochastic(closes, Math.min(14, closes.length - 1));
+    const currentStoch = stoch.length > 0 ? stoch[stoch.length - 1] : 50;
 
     const signal = this.generateSignal(
-      priceChange,
-      rsi[rsi.length - 1],
-      macd.histogram[macd.histogram.length - 1],
-      bbands[bbands.length - 1],
-      currentPrice
+      priceChange, currentRSI, currentMACD, prevMACD, currentBB,
+      currentPrice, currentATR, emaTrend, currentStoch
     );
 
     return {
@@ -125,57 +136,102 @@ class PredictionEngine {
       priceChange: parseFloat(priceChange.toFixed(2)),
       signal,
       indicators: {
-        rsi: rsi[rsi.length - 1],
-        macd: macd.histogram[macd.histogram.length - 1],
-        bbands: bbands[bbands.length - 1],
-        atr: atr[atr.length - 1]
+        rsi: currentRSI,
+        macd: currentMACD,
+        bbands: currentBB,
+        atr: currentATR,
+        stochastic: currentStoch,
+        emaTrend
       },
       timestamp: new Date()
     };
   }
 
-  // Generate Buy/Sell signals
-  generateSignal(priceChange, rsi, macdHist, bbands, currentPrice) {
-    let signal = { action: 'HOLD', confidence: 0, margins: { entry: currentPrice, stop: 0, target: 0 } };
+  // Generate Buy/Sell signals using multi-indicator scoring
+  generateSignal(priceChange, rsi, macdHist, prevMacdHist, bbands, currentPrice, atr, emaTrend, stoch) {
+    // Score from -5 (strong sell) to +5 (strong buy)
+    let score = 0;
+    const reasons = [];
 
-    // RSI signals: < 30 (oversold, buy), > 70 (overbought, sell)
-    let rsiSignal = null;
-    if (rsi < 30) rsiSignal = 'BUY';
-    else if (rsi > 70) rsiSignal = 'SELL';
+    // 1. RSI (weight: 1.5)
+    if (rsi < 25) { score += 1.5; reasons.push('RSI oversold (' + rsi.toFixed(0) + ')'); }
+    else if (rsi < 35) { score += 0.75; reasons.push('RSI low (' + rsi.toFixed(0) + ')'); }
+    else if (rsi > 75) { score -= 1.5; reasons.push('RSI overbought (' + rsi.toFixed(0) + ')'); }
+    else if (rsi > 65) { score -= 0.75; reasons.push('RSI high (' + rsi.toFixed(0) + ')'); }
 
-    // MACD signals: positive histogram (bullish), negative (bearish)
-    let macdSignal = null;
-    if (macdHist > 0) macdSignal = 'BUY';
-    else if (macdHist < 0) macdSignal = 'SELL';
+    // 2. MACD histogram direction + crossover (weight: 1.5)
+    if (macdHist > 0 && prevMacdHist <= 0) { score += 1.5; reasons.push('MACD bullish crossover'); }
+    else if (macdHist < 0 && prevMacdHist >= 0) { score -= 1.5; reasons.push('MACD bearish crossover'); }
+    else if (macdHist > 0) { score += 0.5; reasons.push('MACD positive'); }
+    else if (macdHist < 0) { score -= 0.5; reasons.push('MACD negative'); }
 
-    // Bollinger Bands: touch lower band (buy), upper band (sell)
-    let bbSignal = null;
-    const volatility = (bbands.upper - bbands.lower) / bbands.middle;
-    if (currentPrice <= bbands.lower * 1.02) bbSignal = 'BUY';
-    else if (currentPrice >= bbands.upper * 0.98) bbSignal = 'SELL';
+    // 3. Bollinger Bands position (weight: 1)
+    const bbWidth = (bbands.upper - bbands.lower) / bbands.middle;
+    if (currentPrice <= bbands.lower) { score += 1; reasons.push('Price at lower BB'); }
+    else if (currentPrice <= bbands.lower + (bbands.middle - bbands.lower) * 0.2) { score += 0.5; reasons.push('Price near lower BB'); }
+    else if (currentPrice >= bbands.upper) { score -= 1; reasons.push('Price at upper BB'); }
+    else if (currentPrice >= bbands.upper - (bbands.upper - bbands.middle) * 0.2) { score -= 0.5; reasons.push('Price near upper BB'); }
 
-    // Consensus
-    let buyCount = 0, sellCount = 0;
-    if (rsiSignal === 'BUY') buyCount++;
-    if (rsiSignal === 'SELL') sellCount++;
-    if (macdSignal === 'BUY') buyCount++;
-    if (macdSignal === 'SELL') sellCount++;
-    if (bbSignal === 'BUY') buyCount++;
-    if (bbSignal === 'SELL') sellCount++;
+    // 4. EMA trend (weight: 1)
+    if (emaTrend === 'BULL') { score += 1; reasons.push('EMA uptrend'); }
+    else { score -= 1; reasons.push('EMA downtrend'); }
 
-    if (buyCount > sellCount) {
-      signal.action = 'BUY';
-      signal.confidence = buyCount / 3;
-      signal.margins.stop = currentPrice * 0.98;  // 2% stop loss
-      signal.margins.target = currentPrice * 1.03; // 3% take profit
-    } else if (sellCount > buyCount) {
-      signal.action = 'SELL';
-      signal.confidence = sellCount / 3;
-      signal.margins.stop = currentPrice * 1.02;  // 2% stop loss
-      signal.margins.target = currentPrice * 0.97; // 3% take profit
+    // 5. Stochastic (weight: 0.75)
+    if (stoch < 20) { score += 0.75; reasons.push('Stoch oversold'); }
+    else if (stoch > 80) { score -= 0.75; reasons.push('Stoch overbought'); }
+
+    // 6. Prediction model direction (weight: 0.75)
+    if (priceChange > 0.05) { score += 0.75; reasons.push('Model predicts up'); }
+    else if (priceChange < -0.05) { score -= 0.75; reasons.push('Model predicts down'); }
+
+    // Determine action and confidence from score
+    // Max possible score ~6.5 in either direction
+    const maxScore = 6.5;
+    let action = 'HOLD';
+    let confidence = 0;
+
+    if (score >= 1.5) {
+      action = 'BUY';
+      confidence = Math.min(score / maxScore, 0.95);
+    } else if (score <= -1.5) {
+      action = 'SELL';
+      confidence = Math.min(Math.abs(score) / maxScore, 0.95);
+    } else {
+      action = 'HOLD';
+      confidence = 1 - (Math.abs(score) / 1.5); // Higher confidence when score is near 0
     }
 
-    return signal;
+    // ATR-based stop loss and take profit (tight, realistic margins)
+    // SL = 1.5x ATR, TP = 2x ATR (1:1.33 R:R minimum)
+    const slDistance = atr * 1.5;
+    const tpDistance = atr * 2.0;
+
+    let stop, target;
+    if (action === 'BUY') {
+      stop = currentPrice - slDistance;
+      target = currentPrice + tpDistance;
+    } else if (action === 'SELL') {
+      stop = currentPrice + slDistance;
+      target = currentPrice - tpDistance;
+    } else {
+      stop = currentPrice - slDistance;
+      target = currentPrice + tpDistance;
+    }
+
+    return {
+      action,
+      confidence: parseFloat(confidence.toFixed(3)),
+      margins: {
+        entry: currentPrice,
+        stop: parseFloat(stop.toFixed(currentPrice > 100 ? 2 : 5)),
+        target: parseFloat(target.toFixed(currentPrice > 100 ? 2 : 5)),
+        slPips: parseFloat((slDistance * (currentPrice > 100 ? 10 : 10000)).toFixed(1)),
+        tpPips: parseFloat((tpDistance * (currentPrice > 100 ? 10 : 10000)).toFixed(1)),
+        riskReward: parseFloat((tpDistance / slDistance).toFixed(2))
+      },
+      score: parseFloat(score.toFixed(2)),
+      reasons
+    };
   }
 }
 
