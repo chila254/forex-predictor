@@ -300,12 +300,14 @@ async function getPrediction() {
   try {
     var response = await fetch('/api/predictions/' + currentAsset, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: currentModel })
+      body: JSON.stringify({ model: currentModel, timeframe: currentTimeframe })
     });
     if (!response.ok) throw new Error('API error: ' + response.status);
     var prediction = await response.json();
     if (!prediction.success) { showToast(prediction.error || 'Failed', 'error'); return; }
     if (prediction.dataSource) updateDataSourceBadge(prediction.dataSource, null);
+    var tfNames = {'5M':'5 Min','15M':'15 Min','1H':'1 Hour','4H':'4 Hour','D':'Daily'};
+    document.getElementById('predTfBadge').textContent = tfNames[currentTimeframe] || 'Daily';
     updateSignalDisplay(prediction);
     updateIndicators(prediction.indicators);
     updatePredictionsTable(prediction.predictions, prediction.currentPrice);
@@ -348,14 +350,23 @@ function updateIndicators(indicators) {
   document.getElementById('atrValue').textContent = indicators.atr.toFixed(2);
 }
 
+var TF_LABELS = {
+  '5M':  ['5 min', '10 min', '15 min', '20 min', '25 min'],
+  '15M': ['15 min', '30 min', '45 min', '1 hr', '1h 15m'],
+  '1H':  ['1 hr', '2 hrs', '3 hrs', '4 hrs', '5 hrs'],
+  '4H':  ['4 hrs', '8 hrs', '12 hrs', '16 hrs', '20 hrs'],
+  'D':   ['1 day', '2 days', '3 days', '4 days', '5 days']
+};
+
 function updatePredictionsTable(predictions, currentPrice) {
   var dp = currentPrice > 100 ? 2 : 5;
   var tbody = document.getElementById('predictionsTable');
+  var labels = TF_LABELS[currentTimeframe] || TF_LABELS['D'];
   var rows = predictions.map(function(price, i) {
     var change = ((price - currentPrice) / currentPrice) * 100;
     var cc = change > 0 ? '#86efac' : '#fca5a5';
     return '<div class="grid grid-cols-3 gap-2 py-2.5 px-3 rounded-xl" style="border-bottom:1px solid var(--md-outline);">' +
-      '<div class="text-sm">Period ' + (i + 1) + '</div>' +
+      '<div class="text-sm">' + labels[i] + '</div>' +
       '<div class="text-sm">$' + parseFloat(price).toFixed(dp) + '</div>' +
       '<div class="text-sm font-semibold" style="color:' + cc + ';">' + (change > 0 ? '+' : '') + change.toFixed(2) + '%</div></div>';
   }).join('');

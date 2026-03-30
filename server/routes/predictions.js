@@ -14,7 +14,7 @@ router.post('/:symbol', async (req, res) => {
   
   try {
     const { symbol } = req.params;
-    const { model = 'ensemble' } = req.body;
+    const { model = 'ensemble', timeframe = 'D' } = req.body;
 
     // Validate inputs
     try {
@@ -29,10 +29,10 @@ router.post('/:symbol', async (req, res) => {
       });
     }
 
-    logger.info(`Generating ${model} prediction for ${symbol}`);
+    logger.info(`Generating ${model} prediction for ${symbol} (${timeframe})`);
 
-    // Get historical data for prediction
-    const histResult = await dataFetcher.getHistoricalData(symbol);
+    // Get historical data for prediction using selected timeframe
+    const histResult = await dataFetcher.getHistoricalData(symbol, timeframe);
     const historicalData = histResult.data;
     const dataSource = histResult.source;
     
@@ -71,6 +71,7 @@ router.post('/:symbol', async (req, res) => {
       success: true,
       symbol,
       model,
+      timeframe,
       responseTime: duration,
       dataSource,
       ...prediction
