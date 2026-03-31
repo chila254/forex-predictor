@@ -344,6 +344,12 @@ function updateSignalDisplay(prediction) {
     }).join(' ');
     reasonsEl.style.display = 'flex';
   }
+  var summaryEl = document.getElementById('signalSummary');
+  if (summaryEl && signal.summary) {
+    summaryEl.textContent = signal.summary;
+    summaryEl.style.display = 'block';
+    summaryEl.style.color = s.color;
+  }
   // Margins with pip values
   var dp = signal.margins.entry > 100 ? 2 : 5;
   document.getElementById('entryPrice').textContent = '$' + parseFloat(signal.margins.entry).toFixed(dp);

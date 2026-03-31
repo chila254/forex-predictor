@@ -149,56 +149,59 @@ class PredictionEngine {
 
   // Generate Buy/Sell signals using multi-indicator scoring
   generateSignal(priceChange, rsi, macdHist, prevMacdHist, bbands, currentPrice, atr, emaTrend, stoch) {
-    // Score from -5 (strong sell) to +5 (strong buy)
     let score = 0;
     const reasons = [];
 
-    // 1. RSI (weight: 1.5)
-    if (rsi < 25) { score += 1.5; reasons.push('RSI oversold (' + rsi.toFixed(0) + ')'); }
-    else if (rsi < 35) { score += 0.75; reasons.push('RSI low (' + rsi.toFixed(0) + ')'); }
-    else if (rsi > 75) { score -= 1.5; reasons.push('RSI overbought (' + rsi.toFixed(0) + ')'); }
-    else if (rsi > 65) { score -= 0.75; reasons.push('RSI high (' + rsi.toFixed(0) + ')'); }
+    // 1. RSI — continuous scoring, not just extremes
+    if (rsi < 20) { score += 1.5; reasons.push('RSI oversold (' + rsi.toFixed(0) + ')'); }
+    else if (rsi < 40) { score += 1.0; reasons.push('RSI bullish (' + rsi.toFixed(0) + ')'); }
+    else if (rsi < 50) { score += 0.3; reasons.push('RSI lean buy (' + rsi.toFixed(0) + ')'); }
+    else if (rsi > 80) { score -= 1.5; reasons.push('RSI overbought (' + rsi.toFixed(0) + ')'); }
+    else if (rsi > 60) { score -= 1.0; reasons.push('RSI bearish (' + rsi.toFixed(0) + ')'); }
+    else if (rsi >= 50) { score -= 0.3; reasons.push('RSI lean sell (' + rsi.toFixed(0) + ')'); }
 
-    // 2. MACD histogram direction + crossover (weight: 1.5)
+    // 2. MACD — crossovers are strong, but direction always counts
     if (macdHist > 0 && prevMacdHist <= 0) { score += 1.5; reasons.push('MACD bullish crossover'); }
     else if (macdHist < 0 && prevMacdHist >= 0) { score -= 1.5; reasons.push('MACD bearish crossover'); }
-    else if (macdHist > 0) { score += 0.5; reasons.push('MACD positive'); }
-    else if (macdHist < 0) { score -= 0.5; reasons.push('MACD negative'); }
+    else if (macdHist > 0) { score += 0.75; reasons.push('MACD bullish'); }
+    else if (macdHist < 0) { score -= 0.75; reasons.push('MACD bearish'); }
 
-    // 3. Bollinger Bands position (weight: 1)
-    const bbWidth = (bbands.upper - bbands.lower) / bbands.middle;
-    if (currentPrice <= bbands.lower) { score += 1; reasons.push('Price at lower BB'); }
-    else if (currentPrice <= bbands.lower + (bbands.middle - bbands.lower) * 0.2) { score += 0.5; reasons.push('Price near lower BB'); }
-    else if (currentPrice >= bbands.upper) { score -= 1; reasons.push('Price at upper BB'); }
-    else if (currentPrice >= bbands.upper - (bbands.upper - bbands.middle) * 0.2) { score -= 0.5; reasons.push('Price near upper BB'); }
+    // 3. Bollinger Bands — where price sits in the range
+    const bbRange = bbands.upper - bbands.lower;
+    const bbPos = bbRange > 0 ? (currentPrice - bbands.lower) / bbRange : 0.5;
+    if (bbPos <= 0.1) { score += 1.0; reasons.push('Price at lower BB'); }
+    else if (bbPos <= 0.35) { score += 0.5; reasons.push('Price in lower BB zone'); }
+    else if (bbPos >= 0.9) { score -= 1.0; reasons.push('Price at upper BB'); }
+    else if (bbPos >= 0.65) { score -= 0.5; reasons.push('Price in upper BB zone'); }
 
-    // 4. EMA trend (weight: 1)
-    if (emaTrend === 'BULL') { score += 1; reasons.push('EMA uptrend'); }
-    else { score -= 1; reasons.push('EMA downtrend'); }
+    // 4. EMA trend — always contributes
+    if (emaTrend === 'BULL') { score += 1.0; reasons.push('EMA uptrend'); }
+    else { score -= 1.0; reasons.push('EMA downtrend'); }
 
-    // 5. Stochastic (weight: 0.75)
-    if (stoch < 20) { score += 0.75; reasons.push('Stoch oversold'); }
-    else if (stoch > 80) { score -= 0.75; reasons.push('Stoch overbought'); }
+    // 5. Stochastic — wider zones
+    if (stoch < 25) { score += 0.75; reasons.push('Stoch oversold'); }
+    else if (stoch < 45) { score += 0.25; reasons.push('Stoch low'); }
+    else if (stoch > 75) { score -= 0.75; reasons.push('Stoch overbought'); }
+    else if (stoch > 55) { score -= 0.25; reasons.push('Stoch high'); }
 
-    // 6. Prediction model direction (weight: 0.75)
-    if (priceChange > 0.05) { score += 0.75; reasons.push('Model predicts up'); }
-    else if (priceChange < -0.05) { score -= 0.75; reasons.push('Model predicts down'); }
+    // 6. Model prediction direction
+    if (priceChange > 0.01) { score += 0.75; reasons.push('Model predicts up'); }
+    else if (priceChange < -0.01) { score -= 0.75; reasons.push('Model predicts down'); }
 
-    // Determine action and confidence from score
-    // Max possible score ~6.5 in either direction
+    // Determine action — threshold at ±0.5 so most conditions produce a signal
     const maxScore = 6.5;
     let action = 'HOLD';
     let confidence = 0;
 
-    if (score >= 1.5) {
+    if (score >= 0.5) {
       action = 'BUY';
-      confidence = Math.min(score / maxScore, 0.95);
-    } else if (score <= -1.5) {
+      confidence = Math.min(0.3 + (score / maxScore) * 0.65, 0.95);
+    } else if (score <= -0.5) {
       action = 'SELL';
-      confidence = Math.min(Math.abs(score) / maxScore, 0.95);
+      confidence = Math.min(0.3 + (Math.abs(score) / maxScore) * 0.65, 0.95);
     } else {
       action = 'HOLD';
-      confidence = 1 - (Math.abs(score) / 1.5); // Higher confidence when score is near 0
+      confidence = 0.5;
     }
 
     // ATR-based stop loss and take profit (tight, realistic margins)
@@ -218,9 +221,16 @@ class PredictionEngine {
       target = currentPrice + tpDistance;
     }
 
+    const summary = action === 'BUY'
+      ? `Buy — price expected to rise. Enter at $${currentPrice.toFixed(currentPrice > 100 ? 2 : 5)}, stop at $${stop.toFixed(currentPrice > 100 ? 2 : 5)}, target $${target.toFixed(currentPrice > 100 ? 2 : 5)} (R:R 1:${(tpDistance / slDistance).toFixed(1)})`
+      : action === 'SELL'
+      ? `Sell — price expected to drop. Enter at $${currentPrice.toFixed(currentPrice > 100 ? 2 : 5)}, stop at $${stop.toFixed(currentPrice > 100 ? 2 : 5)}, target $${target.toFixed(currentPrice > 100 ? 2 : 5)} (R:R 1:${(tpDistance / slDistance).toFixed(1)})`
+      : `Hold — no strong directional bias. Wait for clearer entry signal.`;
+
     return {
       action,
       confidence: parseFloat(confidence.toFixed(3)),
+      summary,
       margins: {
         entry: currentPrice,
         stop: parseFloat(stop.toFixed(currentPrice > 100 ? 2 : 5)),
