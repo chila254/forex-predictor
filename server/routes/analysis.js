@@ -94,82 +94,104 @@ router.get('/multi-timeframe/:symbol', async (req, res) => {
 
 /**
  * GET /api/analysis/correlation
- * Compute correlation matrix for forex pairs
+ * Compute correlation matrix from real Frankfurter daily data
  */
-const KNOWN_CORRELATIONS = {
-  'EURUSD:GBPUSD': 0.85,
-  'EURUSD:USDCHF': -0.92,
-  'EURUSD:USDJPY': -0.30,
-  'EURUSD:AUDUSD': 0.55,
-  'GBPUSD:USDCHF': -0.88,
-  'GBPUSD:USDJPY': -0.25,
-  'GBPUSD:AUDUSD': 0.60,
-  'USDCHF:USDJPY': 0.35,
-  'USDCHF:AUDUSD': -0.50,
-  'USDJPY:AUDUSD': -0.20,
-  'AUDUSD:NZDUSD': 0.90,
-  'USDJPY:EURJPY': 0.78,
-  'EURUSD:EURJPY': 0.40,
-  'GBPUSD:EURGBP': -0.45,
-  'EURUSD:EURGBP': 0.30,
-};
-
-function getBaseCorrelation(pair1, pair2) {
-  const key1 = `${pair1}:${pair2}`;
-  const key2 = `${pair2}:${pair1}`;
-  if (KNOWN_CORRELATIONS[key1] !== undefined) return KNOWN_CORRELATIONS[key1];
-  if (KNOWN_CORRELATIONS[key2] !== undefined) return KNOWN_CORRELATIONS[key2];
-  return 0;
-}
-
 router.get('/correlation', async (req, res) => {
   const startTime = Date.now();
 
   try {
     const pairs = ['EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'AUDUSD'];
 
-    // Fetch batch prices for slight dynamic adjustment
-    const priceResults = await Promise.allSettled(
-      pairs.map(s => dataFetcher.getPriceData(s))
+    // Fetch real daily history for each pair
+    const histResults = await Promise.allSettled(
+      pairs.map(s => dataFetcher.getHistoricalData(s, 'D'))
     );
 
-    const changes = {};
-    priceResults.forEach((result, i) => {
-      if (result.status === 'fulfilled' && result.value) {
-        const d = result.value;
-        const open = d.open || d.price;
-        changes[pairs[i]] = open > 0 ? ((d.price - open) / open) * 100 : 0;
-      } else {
-        changes[pairs[i]] = 0;
+    // Extract close prices indexed by date for alignment
+    const seriesMap = {};
+    const allDates = new Set();
+
+    pairs.forEach((pair, i) => {
+      if (histResults[i].status === 'fulfilled' && histResults[i].value.data) {
+        const closes = {};
+        histResults[i].value.data.forEach(d => {
+          const dateStr = new Date(d.date).toISOString().slice(0, 10);
+          closes[dateStr] = d.close;
+          allDates.add(dateStr);
+        });
+        seriesMap[pair] = closes;
       }
     });
 
+    // Sort dates and find common dates across all pairs
+    const sortedDates = [...allDates].sort();
+    const availablePairs = pairs.filter(p => seriesMap[p]);
+
+    // Compute log returns for each pair on common dates
+    const returns = {};
+    for (const pair of availablePairs) {
+      returns[pair] = [];
+      let prevClose = null;
+      for (const date of sortedDates) {
+        const close = seriesMap[pair][date];
+        if (close && prevClose && prevClose > 0) {
+          returns[pair].push({ date, ret: Math.log(close / prevClose) });
+        }
+        if (close) prevClose = close;
+      }
+    }
+
+    // Pearson correlation helper
+    function pearson(a, b) {
+      // Align by date
+      const bMap = {};
+      b.forEach(r => { bMap[r.date] = r.ret; });
+      const aligned = a.filter(r => bMap[r.date] !== undefined);
+      const aVals = aligned.map(r => r.ret);
+      const bVals = aligned.map(r => bMap[r.date]);
+
+      const n = aVals.length;
+      if (n < 5) return null;
+
+      const meanA = aVals.reduce((s, v) => s + v, 0) / n;
+      const meanB = bVals.reduce((s, v) => s + v, 0) / n;
+
+      let num = 0, denA = 0, denB = 0;
+      for (let i = 0; i < n; i++) {
+        const da = aVals[i] - meanA;
+        const db = bVals[i] - meanB;
+        num += da * db;
+        denA += da * da;
+        denB += db * db;
+      }
+
+      if (denA === 0 || denB === 0) return 0;
+      return num / Math.sqrt(denA * denB);
+    }
+
     // Build correlation matrix
     const matrix = [];
-    for (let i = 0; i < pairs.length; i++) {
+    for (let i = 0; i < availablePairs.length; i++) {
       const row = [];
-      for (let j = 0; j < pairs.length; j++) {
+      for (let j = 0; j < availablePairs.length; j++) {
         if (i === j) {
           row.push(1);
         } else {
-          let base = getBaseCorrelation(pairs[i], pairs[j]);
-          // Add small noise based on price movement similarity
-          const noise = (Math.random() - 0.5) * 0.06;
-          let corr = base + noise;
-          corr = Math.max(-1, Math.min(1, corr));
-          row.push(parseFloat(corr.toFixed(2)));
+          const corr = pearson(returns[availablePairs[i]], returns[availablePairs[j]]);
+          row.push(corr !== null ? parseFloat(corr.toFixed(2)) : null);
         }
       }
       matrix.push(row);
     }
 
     const duration = Date.now() - startTime;
-    logger.info(`Correlation matrix computed in ${duration}ms`);
+    logger.info(`Correlation matrix computed from real data in ${duration}ms`);
 
     res.json({
       success: true,
-      pairs,
+      pairs: availablePairs,
       matrix,
+      dataSource: 'frankfurter',
       timestamp: new Date().toISOString()
     });
   } catch (error) {

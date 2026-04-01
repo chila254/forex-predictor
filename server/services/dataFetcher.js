@@ -5,6 +5,10 @@ const TWELVE_DATA_BASE_URL = 'https://api.twelvedata.com';
 const GOLD_API_KEY = process.env.GOLD_API_KEY;
 const GOLD_API_BASE_URL = 'https://www.goldapi.io/api';
 
+// Log API key availability on module load (never log actual keys)
+console.log(`[DataFetcher] TwelveData configured: ${!!TWELVE_DATA_API_KEY}`);
+console.log(`[DataFetcher] GoldAPI configured: ${!!GOLD_API_KEY}`);
+
 // Swissquote instrument mapping (free real-time, no key needed)
 const SQ_SYMBOLS = {
   EURUSD: 'EUR/USD', GBPUSD: 'GBP/USD', USDJPY: 'USD/JPY', USDCHF: 'USD/CHF',
@@ -111,13 +115,11 @@ class DataFetcher {
 
     const data = dates.map(date => {
       const rate = d.rates[date][pair.to];
-      // Frankfurter gives daily close only; simulate OHLC with small variance
-      const dayVar = rate * 0.0015;
       return {
         date: new Date(date),
-        open: rate + (Math.random() - 0.5) * dayVar * 0.5,
-        high: rate + Math.random() * dayVar,
-        low: rate - Math.random() * dayVar,
+        open: rate,
+        high: rate,
+        low: rate,
         close: rate,
         volume: 0
       };
@@ -128,117 +130,18 @@ class DataFetcher {
     return { source: 'live', data };
   }
 
-  // ===== SWISSQUOTE HISTORICAL (build from repeated snapshots — for intraday) =====
-  // For intraday timeframes, we build pseudo-history from the current price + Frankfurter daily trend
-
   async buildIntradayHistory(symbol, timeframe) {
-    // Get daily history first for the trend context
-    let dailyData;
-    try {
-      const result = await this.getFrankfurterHistory(symbol);
-      dailyData = result.data;
-    } catch (e) {
-      // For non-Frankfurter symbols (XAUUSD), try TwelveData or mock
-      if (TWELVE_DATA_API_KEY) {
-        return this.getTwelveDataHistory(symbol, timeframe);
-      }
-      throw e;
+    if (TWELVE_DATA_API_KEY) {
+      return this.getTwelveDataHistory(symbol, timeframe);
     }
-
-    // For intraday, synthesize from the last few days of daily data
-    const barsMap = { '5M': 100, '15M': 80, '1H': 60, '4H': 40 };
-    const numBars = barsMap[timeframe] || 60;
-    const minutesMap = { '5M': 5, '15M': 15, '1H': 60, '4H': 240 };
-    const minutes = minutesMap[timeframe] || 60;
-
-    // Use last daily candles to establish realistic intraday variation
-    const recentDays = dailyData.slice(-10);
-    const avgRange = recentDays.reduce((sum, d) => sum + (d.high - d.low), 0) / recentDays.length;
-    const barRange = avgRange * (minutes / 1440); // scale range to bar duration
-    const lastPrice = recentDays[recentDays.length - 1].close;
-
-    const data = [];
-    let price = lastPrice - barRange * numBars * 0.01; // start slightly offset
-    const trendDir = lastPrice > recentDays[0].close ? 1 : -1;
-
-    for (let i = numBars; i > 0; i--) {
-      const date = new Date(Date.now() - i * minutes * 60000);
-      const trend = trendDir * barRange * 0.15;
-      price += trend + (Math.random() - 0.5) * barRange * 2;
-      data.push({
-        date,
-        open: price + (Math.random() - 0.5) * barRange * 0.3,
-        high: price + Math.random() * barRange,
-        low: price - Math.random() * barRange,
-        close: price + (Math.random() - 0.5) * barRange * 0.3,
-        volume: 0
-      });
-    }
-
-    return { source: 'live', data };
+    throw new Error(`No real intraday data source available for ${symbol} ${timeframe}. Set TWELVE_DATA_API_KEY for intraday history.`);
   }
 
-  // ===== GOLD HISTORICAL (Swissquote snapshot + trend synthesis) =====
-
   async getGoldHistory(timeframe) {
-    // Try TwelveData first if key is available
     if (TWELVE_DATA_API_KEY) {
-      try {
-        return await this.getTwelveDataHistory('XAUUSD', timeframe);
-      } catch (e) {
-        console.log('[DataFetcher] TwelveData gold history failed, building synthetic');
-      }
+      return await this.getTwelveDataHistory('XAUUSD', timeframe);
     }
-
-    // Build synthetic gold history from current live price
-    const cacheKey = `gold_hist_${timeframe}`;
-    const cached = priceCache.get(cacheKey);
-    if (cached && (Date.now() - cached.time) < HIST_CACHE_TTL) {
-      return { source: 'live', data: cached.data };
-    }
-
-    let currentGoldPrice;
-    try {
-      const priceData = await this.getSwissquotePrice('XAUUSD');
-      currentGoldPrice = priceData.price;
-    } catch (e) {
-      currentGoldPrice = 3100; // reasonable fallback
-    }
-
-    // Build 100-bar history working backwards from current real price
-    const barsMap = { '5M': 100, '15M': 80, '1H': 60, '4H': 40, 'D': 100 };
-    const numBars = barsMap[timeframe] || 100;
-    const minutesMap = { '5M': 5, '15M': 15, '1H': 60, '4H': 240, 'D': 1440 };
-    const minutes = minutesMap[timeframe] || 1440;
-
-    // Gold daily range ~$30-50, scale to timeframe
-    const dailyRange = currentGoldPrice * 0.012;
-    const barRange = dailyRange * Math.sqrt(minutes / 1440);
-
-    const data = [];
-    let price = currentGoldPrice;
-    // Work backwards
-    const prices = [price];
-    for (let i = 1; i < numBars; i++) {
-      price -= (Math.random() - 0.48) * barRange; // slight upward bias going forward
-      prices.unshift(price);
-    }
-
-    for (let i = 0; i < numBars; i++) {
-      const date = new Date(Date.now() - (numBars - i) * minutes * 60000);
-      const p = prices[i];
-      data.push({
-        date,
-        open: p + (Math.random() - 0.5) * barRange * 0.3,
-        high: p + Math.random() * barRange * 0.5,
-        low: p - Math.random() * barRange * 0.5,
-        close: p,
-        volume: 0
-      });
-    }
-
-    priceCache.set(cacheKey, { data, time: Date.now() });
-    return { source: 'live', data };
+    throw new Error('Historical XAUUSD data requires TWELVE_DATA_API_KEY. Only live spot price is available via Swissquote.');
   }
 
   // ===== TWELVE DATA METHODS (used when API key is available) =====
@@ -387,8 +290,38 @@ class DataFetcher {
   }
 
   async getHistoricalData(symbol, timeframe = 'D') {
-    // 1. For daily forex data — use Frankfurter (free, real ECB data)
-    if (timeframe === 'D' && FRANKFURTER_PAIRS[symbol]) {
+    // Gold: real historical data only
+    if (symbol === 'XAUUSD') {
+      return this.getGoldHistory(timeframe);
+    }
+
+    // Forex intraday: TwelveData first, then daily fallback with warning
+    if (timeframe !== 'D') {
+      if (TWELVE_DATA_API_KEY) {
+        try {
+          return await this.getTwelveDataHistory(symbol, timeframe);
+        } catch (err) {
+          console.log(`[DataFetcher] TwelveData intraday failed for ${symbol}: ${err.message}`);
+        }
+      }
+
+      // Fall back to daily data with warning
+      if (FRANKFURTER_PAIRS[symbol]) {
+        const daily = await this.getFrankfurterHistory(symbol);
+        return {
+          ...daily,
+          requestedTimeframe: timeframe,
+          actualTimeframe: 'D',
+          dataQuality: 'close_only',
+          warnings: [`No real ${timeframe} data available; returned daily close-only data instead.`]
+        };
+      }
+
+      throw new Error(`No real intraday source available for ${symbol}`);
+    }
+
+    // Forex daily: Frankfurter (real ECB data)
+    if (FRANKFURTER_PAIRS[symbol]) {
       try {
         return await this.getFrankfurterHistory(symbol);
       } catch (err) {
@@ -396,21 +329,7 @@ class DataFetcher {
       }
     }
 
-    // 2. For gold — dedicated handler
-    if (symbol === 'XAUUSD') {
-      return this.getGoldHistory(timeframe);
-    }
-
-    // 3. For intraday forex — build from Frankfurter daily + synthesis
-    if (timeframe !== 'D' && FRANKFURTER_PAIRS[symbol]) {
-      try {
-        return await this.buildIntradayHistory(symbol, timeframe);
-      } catch (err) {
-        console.log(`[DataFetcher] Intraday build failed for ${symbol}: ${err.message}`);
-      }
-    }
-
-    // 4. TwelveData if key is available
+    // Fallback to TwelveData for daily
     if (TWELVE_DATA_API_KEY) {
       return this.getTwelveDataHistory(symbol, timeframe);
     }
@@ -447,8 +366,8 @@ class DataFetcher {
     const result = {
       symbol,
       price,
-      high: price * 1.001,
-      low: price * 0.999,
+      high: price,
+      low: price,
       open: price,
       close: price,
       volume: 0,

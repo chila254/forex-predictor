@@ -20,6 +20,7 @@ router.post('/:symbol', async (req, res) => {
     try {
       Validators.validateSymbol(symbol);
       Validators.validateModel(model);
+      Validators.validateTimeframe(timeframe);
     } catch (validationError) {
       const duration = Date.now() - startTime;
       logger.warn(`Invalid prediction request: ${validationError.message}`);
@@ -72,6 +73,9 @@ router.post('/:symbol', async (req, res) => {
       symbol,
       model,
       timeframe,
+      actualTimeframe: histResult.actualTimeframe || timeframe,
+      dataQuality: histResult.dataQuality || (dataSource === 'live' ? 'full_ohlc' : 'unknown'),
+      warnings: histResult.warnings || [],
       responseTime: duration,
       dataSource,
       ...prediction

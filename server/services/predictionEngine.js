@@ -45,7 +45,7 @@ class PredictionEngine {
     return { slope, intercept, predictions };
   }
 
-  // Simple ARIMA Model (p=1, d=1, q=0)
+  // ARIMA(1,1,0) - proper AR(1) on first differences
   arimaModel(prices) {
     // Differencing (d=1)
     const diff = [];
@@ -53,22 +53,38 @@ class PredictionEngine {
       diff.push(prices[i] - prices[i - 1]);
     }
 
-    // AR(1) - AutoRegressive
-    const { slope, intercept } = this.linearRegression(diff);
-    
-    // Reconstruct predictions
+    if (diff.length < 2) {
+      return { predictions: Array(5).fill(prices[prices.length - 1]), diff };
+    }
+
+    // AR(1): regress diff[t] on diff[t-1]
+    const x = diff.slice(0, -1);
+    const y = diff.slice(1);
+
+    const meanX = x.reduce((a, b) => a + b, 0) / x.length;
+    const meanY = y.reduce((a, b) => a + b, 0) / y.length;
+
+    let num = 0, den = 0;
+    for (let i = 0; i < x.length; i++) {
+      num += (x[i] - meanX) * (y[i] - meanY);
+      den += (x[i] - meanX) ** 2;
+    }
+
+    const phi = den === 0 ? 0 : num / den;
+    const c = meanY - phi * meanX;
+
+    // Forecast
     const predictions = [];
     let lastPrice = prices[prices.length - 1];
     let lastDiff = diff[diff.length - 1];
 
     for (let i = 0; i < 5; i++) {
-      const nextDiff = slope * i + intercept;
-      const nextPrice = lastPrice + nextDiff;
-      predictions.push(nextPrice);
-      lastPrice = nextPrice;
+      lastDiff = c + phi * lastDiff;
+      lastPrice = lastPrice + lastDiff;
+      predictions.push(lastPrice);
     }
 
-    return { predictions, diff };
+    return { predictions, diff, phi, c };
   }
 
   // Ensemble Model combining multiple predictions
