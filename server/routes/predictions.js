@@ -49,8 +49,19 @@ router.post('/:symbol', async (req, res) => {
       });
     }
 
-    // Run prediction
-    const prediction = predictionEngine.predict(historicalData, model);
+    // Get live price for anchoring predictions to current market
+    let livePrice = null;
+    try {
+      const livePriceData = await dataFetcher.getPriceData(symbol);
+      livePrice = livePriceData.price;
+    } catch (e) {
+      // Live price unavailable, predictions will anchor to last historical close
+    }
+
+    // Run prediction anchored to live price
+    const prediction = predictionEngine.predictWithLivePrice
+      ? predictionEngine.predictWithLivePrice(historicalData, livePrice, model)
+      : predictionEngine.predict(historicalData, model);
     
     // Validate prediction
     try {

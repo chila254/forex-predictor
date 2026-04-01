@@ -307,7 +307,21 @@ async function getPrediction() {
     if (!prediction.success) { showToast(prediction.error || 'Failed', 'error'); return; }
     if (prediction.dataSource) updateDataSourceBadge(prediction.dataSource, null);
     var tfNames = {'5M':'5 Min','15M':'15 Min','1H':'1 Hour','4H':'4 Hour','D':'Daily'};
-    document.getElementById('predTfBadge').textContent = tfNames[currentTimeframe] || 'Daily';
+    var actualTf = prediction.actualTimeframe || currentTimeframe;
+    var tfLabel = tfNames[actualTf] || tfNames[currentTimeframe] || 'Daily';
+    var badge = document.getElementById('predTfBadge');
+    badge.textContent = tfLabel;
+    if (actualTf !== currentTimeframe) {
+      badge.textContent = tfLabel + ' (fallback)';
+      badge.style.background = 'rgba(252,165,165,0.15)';
+      badge.style.color = '#fca5a5';
+    } else {
+      badge.style.background = 'rgba(125,211,252,0.15)';
+      badge.style.color = 'var(--md-primary)';
+    }
+    if (prediction.warnings && prediction.warnings.length > 0) {
+      showToast('⚠ ' + prediction.warnings[0], 'warning', 6000);
+    }
     updateSignalDisplay(prediction);
     updateIndicators(prediction.indicators);
     updatePredictionsTable(prediction.predictions, prediction.currentPrice);
@@ -329,10 +343,17 @@ function updateSignalDisplay(prediction) {
     HOLD: { bg:'rgba(253,224,71,0.06)', border:'rgba(253,224,71,0.3)', color:'#fde047' }
   };
   var s = styles[signal.action] || styles.HOLD;
+  // Show regime if available
+  var regimeLabel = '';
+  if (prediction.regime && prediction.regime.regime) {
+    var regimeColors = { TRENDING_UP: '#86efac', TRENDING_DOWN: '#fca5a5', RANGING: '#fcd34d' };
+    var regimeNames = { TRENDING_UP: '↑ Uptrend', TRENDING_DOWN: '↓ Downtrend', RANGING: '↔ Ranging' };
+    regimeLabel = '<div class="md-label-small px-2 py-1 rounded-lg mb-2" style="display:inline-block;background:rgba(0,0,0,0.2);color:' + (regimeColors[prediction.regime.regime] || '#94a3b8') + ';">' + (regimeNames[prediction.regime.regime] || prediction.regime.regime) + '</div>';
+  }
   var box = document.getElementById('signalBox');
   box.style.background = s.bg; box.style.borderColor = s.border;
   var act = document.getElementById('signalAction');
-  act.textContent = signal.action; act.style.color = s.color;
+  act.innerHTML = regimeLabel + '<div>' + signal.action + '</div>'; act.style.color = s.color;
   document.getElementById('confidenceBar').style.width = confPercent + '%';
   document.getElementById('confidenceBar').style.background = s.color;
   document.getElementById('confidencePercent').textContent = confPercent + '%';
@@ -373,6 +394,12 @@ function updateIndicators(indicators) {
   document.getElementById('macdValue').textContent = indicators.macd.toFixed(4);
   document.getElementById('bbandsValue').textContent = indicators.bbands.middle.toFixed(2);
   document.getElementById('atrValue').textContent = indicators.atr.toFixed(2);
+  // Update ADX if available
+  var adxEl = document.getElementById('adxValue');
+  if (adxEl && indicators.adx !== undefined) {
+    adxEl.textContent = indicators.adx.toFixed(1);
+    adxEl.style.color = indicators.adx > 25 ? '#86efac' : indicators.adx < 15 ? '#fca5a5' : 'var(--md-primary)';
+  }
 }
 
 var TF_LABELS = {
@@ -602,7 +629,7 @@ async function loadMultiTimeframe() {
     var grid = document.getElementById('mtfGrid');
     var tfs = data.timeframes;
     var html = '';
-    var keys = ['short', 'medium', 'long', 'daily'];
+    var keys = ['daily', 'h4', 'h1', 'm15'];
     keys.forEach(function(key) {
       var tf = tfs[key];
       var sc = tf.signal === 'BUY' ? '#86efac' : tf.signal === 'SELL' ? '#fca5a5' : '#fde047';
@@ -610,6 +637,7 @@ async function loadMultiTimeframe() {
       html += '<div class="m3-indicator-card">' +
         '<p class="md-label-medium mb-1" style="color:var(--md-on-sv);">' + tf.label + '</p>' +
         '<div class="text-xl font-bold mb-1" style="color:' + sc + ';">' + tf.signal + '</div>' +
+        (tf.isFallback ? '<p class="md-label-small mb-1" style="color:#fcd34d;">⚠ Fallback data</p>' : '') +
         '<div class="m3-progress-track mb-1" style="height:4px;"><div class="m3-progress-fill" style="width:' + confPct + '%;background:' + sc + ';height:100%;"></div></div>' +
         '<p class="md-label-small" style="color:var(--md-on-sv);">' + confPct + '% · RSI ' + tf.rsi.toFixed(1) + '</p>' +
         '</div>';

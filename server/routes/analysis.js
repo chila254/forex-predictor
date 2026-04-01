@@ -13,63 +13,107 @@ router.get('/multi-timeframe/:symbol', async (req, res) => {
 
   try {
     const { symbol } = req.params;
-
     logger.info(`Multi-timeframe analysis for ${symbol}`);
 
-    const histResult = await dataFetcher.getHistoricalData(symbol);
-    const historicalData = histResult.data;
+    const timeframes = [
+      { key: 'daily', label: 'Daily (Bias)', tf: 'D', role: 'bias' },
+      { key: 'h4', label: '4H (Setup)', tf: '4H', role: 'confirmation' },
+      { key: 'h1', label: '1H (Entry)', tf: '1H', role: 'timing' },
+      { key: 'm15', label: '15M (Precision)', tf: '15M', role: 'timing' }
+    ];
 
-    if (!Array.isArray(historicalData) || historicalData.length < 20) {
-      return res.status(400).json({
-        success: false,
-        error: 'Insufficient historical data for multi-timeframe analysis'
-      });
-    }
-
-    const timeframes = {
-      short: { label: 'Short-term', window: 20 },
-      medium: { label: 'Medium-term', window: 50 },
-      long: { label: 'Long-term', window: 80 },
-      daily: { label: 'Daily', window: historicalData.length }
-    };
+    // Fetch all timeframes in parallel
+    const fetchResults = await Promise.allSettled(
+      timeframes.map(t => dataFetcher.getHistoricalData(symbol, t.tf))
+    );
 
     const results = {};
     const signals = [];
+    const biasSignals = []; // D and 4H
 
-    for (const [key, tf] of Object.entries(timeframes)) {
-      const window = Math.min(tf.window, historicalData.length);
-      const slice = historicalData.slice(-window);
+    for (let i = 0; i < timeframes.length; i++) {
+      const tf = timeframes[i];
+      const fetchResult = fetchResults[i];
 
-      if (slice.length < 14) {
-        results[key] = { label: tf.label, signal: 'HOLD', confidence: 0, rsi: 50 };
+      if (fetchResult.status !== 'fulfilled' || !fetchResult.value.data) {
+        results[tf.key] = {
+          label: tf.label,
+          role: tf.role,
+          signal: 'UNAVAILABLE',
+          confidence: 0,
+          rsi: null,
+          actualTimeframe: null,
+          warning: fetchResult.reason?.message || 'Data unavailable'
+        };
         continue;
       }
 
-      const prediction = predictionEngine.predict(slice);
+      const histData = fetchResult.value.data;
+      const actualTf = fetchResult.value.actualTimeframe || tf.tf;
+
+      if (histData.length < 14) {
+        results[tf.key] = {
+          label: tf.label,
+          role: tf.role,
+          signal: 'INSUFFICIENT',
+          confidence: 0,
+          rsi: null,
+          actualTimeframe: actualTf
+        };
+        continue;
+      }
+
+      const prediction = predictionEngine.predict(histData);
       if (prediction.error) {
-        results[key] = { label: tf.label, signal: 'HOLD', confidence: 0, rsi: 50 };
+        results[tf.key] = {
+          label: tf.label,
+          role: tf.role,
+          signal: 'ERROR',
+          confidence: 0,
+          rsi: null,
+          actualTimeframe: actualTf
+        };
         continue;
       }
 
-      results[key] = {
+      const result = {
         label: tf.label,
+        role: tf.role,
         signal: prediction.signal.action,
         confidence: parseFloat(prediction.signal.confidence.toFixed(2)),
-        rsi: parseFloat((prediction.indicators.rsi || 50).toFixed(1))
+        rsi: prediction.indicators.rsi ? parseFloat(prediction.indicators.rsi.toFixed(1)) : null,
+        regime: prediction.regime ? prediction.regime.regime : null,
+        actualTimeframe: actualTf,
+        isFallback: actualTf !== tf.tf
       };
 
-      signals.push(prediction.signal.action);
+      if (result.isFallback) {
+        result.warning = `Requested ${tf.tf} but got ${actualTf} data`;
+      }
+
+      results[tf.key] = result;
+      if (result.signal !== 'HOLD') signals.push(result.signal);
+      if (tf.role === 'bias' || tf.role === 'confirmation') {
+        biasSignals.push(result.signal);
+      }
     }
 
-    // Calculate consensus
+    // Hierarchical consensus: D + 4H must agree for strong signal
     const buys = signals.filter(s => s === 'BUY').length;
     const sells = signals.filter(s => s === 'SELL').length;
-    let consensus = 'HOLD';
-    if (buys > sells) consensus = 'BUY';
-    else if (sells > buys) consensus = 'SELL';
+    const biasbuys = biasSignals.filter(s => s === 'BUY').length;
+    const biassells = biasSignals.filter(s => s === 'SELL').length;
 
-    const maxCount = Math.max(buys, sells);
-    const agreement = signals.length > 0 ? Math.round((maxCount / signals.length) * 100) : 0;
+    let consensus = 'HOLD';
+    if (biasbuys >= 2 || (biasbuys >= 1 && buys > sells)) {
+      consensus = 'BUY';
+    } else if (biassells >= 2 || (biassells >= 1 && sells > buys)) {
+      consensus = 'SELL';
+    }
+
+    const totalSignals = signals.length;
+    const maxCount = Math.max(buys, sells, 0);
+    const agreement = totalSignals > 0 ? Math.round((maxCount / totalSignals) * 100) : 0;
 
     const duration = Date.now() - startTime;
     logger.info(`Multi-timeframe analysis for ${symbol} in ${duration}ms - Consensus: ${consensus} (${agreement}%)`);
@@ -79,7 +123,8 @@ router.get('/multi-timeframe/:symbol', async (req, res) => {
       symbol,
       timeframes: results,
       consensus,
-      agreement
+      agreement,
+      note: 'Consensus requires Daily + 4H agreement for BUY/SELL'
     });
   } catch (error) {
     const duration = Date.now() - startTime;

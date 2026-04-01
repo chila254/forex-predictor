@@ -134,6 +134,107 @@ class TechnicalAnalysis {
     }
     return atr;
   }
+
+  // ADX (Average Directional Index) for trend strength
+  static ADX(high, low, close, period = 14) {
+    if (close.length < period + 1) return [];
+
+    const plusDM = [];
+    const minusDM = [];
+    const tr = [];
+
+    for (let i = 1; i < close.length; i++) {
+      const upMove = high[i] - high[i - 1];
+      const downMove = low[i - 1] - low[i];
+      plusDM.push(upMove > downMove && upMove > 0 ? upMove : 0);
+      minusDM.push(downMove > upMove && downMove > 0 ? downMove : 0);
+      const tr1 = high[i] - low[i];
+      const tr2 = Math.abs(high[i] - close[i - 1]);
+      const tr3 = Math.abs(low[i] - close[i - 1]);
+      tr.push(Math.max(tr1, tr2, tr3));
+    }
+
+    // Smoothed averages using Wilder's method
+    let smoothTR = tr.slice(0, period).reduce((a, b) => a + b, 0);
+    let smoothPlusDM = plusDM.slice(0, period).reduce((a, b) => a + b, 0);
+    let smoothMinusDM = minusDM.slice(0, period).reduce((a, b) => a + b, 0);
+
+    const dx = [];
+    for (let i = period; i < tr.length; i++) {
+      if (i > period) {
+        smoothTR = smoothTR - smoothTR / period + tr[i];
+        smoothPlusDM = smoothPlusDM - smoothPlusDM / period + plusDM[i];
+        smoothMinusDM = smoothMinusDM - smoothMinusDM / period + minusDM[i];
+      }
+      const plusDI = smoothTR > 0 ? (smoothPlusDM / smoothTR) * 100 : 0;
+      const minusDI = smoothTR > 0 ? (smoothMinusDM / smoothTR) * 100 : 0;
+      const diSum = plusDI + minusDI;
+      dx.push(diSum > 0 ? (Math.abs(plusDI - minusDI) / diSum) * 100 : 0);
+    }
+
+    if (dx.length === 0) return [];
+
+    // Smooth DX to get ADX
+    const adx = [];
+    let adxSum = dx.slice(0, period).reduce((a, b) => a + b, 0) / period;
+    adx.push(adxSum);
+    for (let i = period; i < dx.length; i++) {
+      adxSum = (adxSum * (period - 1) + dx[i]) / period;
+      adx.push(adxSum);
+    }
+
+    return adx;
+  }
+
+  // Detect support and resistance levels from price data
+  static SupportResistance(closes, lookback = 5, clusterThreshold = 0.003) {
+    if (closes.length < lookback * 2 + 1) return { support: [], resistance: [] };
+
+    const swingHighs = [];
+    const swingLows = [];
+
+    // Find swing points
+    for (let i = lookback; i < closes.length - lookback; i++) {
+      let isHigh = true;
+      let isLow = true;
+      for (let j = 1; j <= lookback; j++) {
+        if (closes[i] <= closes[i - j] || closes[i] <= closes[i + j]) isHigh = false;
+        if (closes[i] >= closes[i - j] || closes[i] >= closes[i + j]) isLow = false;
+      }
+      if (isHigh) swingHighs.push({ price: closes[i], index: i });
+      if (isLow) swingLows.push({ price: closes[i], index: i });
+    }
+
+    // Cluster nearby levels
+    function clusterLevels(points) {
+      if (points.length === 0) return [];
+      const sorted = [...points].sort((a, b) => a.price - b.price);
+      const clusters = [];
+      let cluster = [sorted[0]];
+
+      for (let i = 1; i < sorted.length; i++) {
+        const diff = Math.abs(sorted[i].price - cluster[0].price) / cluster[0].price;
+        if (diff < clusterThreshold) {
+          cluster.push(sorted[i]);
+        } else {
+          clusters.push(cluster);
+          cluster = [sorted[i]];
+        }
+      }
+      clusters.push(cluster);
+
+      return clusters.map(c => ({
+        price: c.reduce((sum, p) => sum + p.price, 0) / c.length,
+        touches: c.length,
+        lastIndex: Math.max(...c.map(p => p.index))
+      })).sort((a, b) => b.touches - a.touches);
+    }
+
+    return {
+      support: clusterLevels(swingLows).slice(0, 5),
+      resistance: clusterLevels(swingHighs).slice(0, 5)
+    };
+  }
 }
 
 module.exports = TechnicalAnalysis;

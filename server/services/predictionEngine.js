@@ -7,26 +7,35 @@ class PredictionEngine {
       linear: this.linearRegression.bind(this),
       exponential: this.exponentialRegression.bind(this),
       arima: this.arimaModel.bind(this),
-      ensemble: this.ensembleModel.bind(this)
+      naive: this.naiveModel.bind(this),
+      ensemble: this.adaptiveEnsemble.bind(this)
     };
   }
 
-  // Linear Regression
+  // Naive model (random walk baseline) — next price = last price
+  naiveModel(prices) {
+    const last = prices[prices.length - 1];
+    return { predictions: Array(5).fill(last) };
+  }
+
+  // Linear Regression on recent window (last 30 bars, not full history)
   linearRegression(prices) {
-    const n = prices.length;
+    const window = Math.min(30, prices.length);
+    const recent = prices.slice(-window);
+    const n = recent.length;
     let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
 
     for (let i = 0; i < n; i++) {
       sumX += i;
-      sumY += prices[i];
-      sumXY += i * prices[i];
+      sumY += recent[i];
+      sumXY += i * recent[i];
       sumX2 += i * i;
     }
 
-    const slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
+    const denom = n * sumX2 - sumX * sumX;
+    const slope = denom === 0 ? 0 : (n * sumXY - sumX * sumY) / denom;
     const intercept = (sumY - slope * sumX) / n;
 
-    // Predict next 5 prices
     const predictions = [];
     for (let i = 1; i <= 5; i++) {
       predictions.push(slope * (n + i - 1) + intercept);
@@ -35,31 +44,57 @@ class PredictionEngine {
     return { slope, intercept, predictions };
   }
 
-  // Exponential Regression
+  // Exponential Regression (capped to prevent explosion)
   exponentialRegression(prices) {
-    // Using log transform for exponential curve fitting
-    const logPrices = prices.map(p => Math.log(Math.max(p, 0.01))); // Avoid log(0)
-    const { slope, intercept, predictions: logPredictions } = this.linearRegression(logPrices);
+    const window = Math.min(30, prices.length);
+    const recent = prices.slice(-window);
+    const logPrices = recent.map(p => Math.log(Math.max(p, 0.01)));
+    const n = logPrices.length;
+    let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
 
-    const predictions = logPredictions.map(p => Math.exp(p));
+    for (let i = 0; i < n; i++) {
+      sumX += i;
+      sumY += logPrices[i];
+      sumXY += i * logPrices[i];
+      sumX2 += i * i;
+    }
+
+    const denom = n * sumX2 - sumX * sumX;
+    const slope = denom === 0 ? 0 : (n * sumXY - sumX * sumY) / denom;
+    const intercept = (sumY - slope * sumX) / n;
+
+    const predictions = [];
+    const lastPrice = prices[prices.length - 1];
+    for (let i = 1; i <= 5; i++) {
+      let pred = Math.exp(slope * (n + i - 1) + intercept);
+      // Cap to prevent explosion: max 5% move per step
+      const maxMove = lastPrice * 0.05 * i;
+      pred = Math.max(lastPrice - maxMove, Math.min(lastPrice + maxMove, pred));
+      predictions.push(pred);
+    }
+
     return { slope, intercept, predictions };
   }
 
-  // ARIMA(1,1,0) - proper AR(1) on first differences
+  // ARIMA(1,1,0) on log returns (more stable for forex)
   arimaModel(prices) {
-    // Differencing (d=1)
-    const diff = [];
+    if (prices.length < 3) {
+      return { predictions: Array(5).fill(prices[prices.length - 1]) };
+    }
+
+    // Compute log returns
+    const logReturns = [];
     for (let i = 1; i < prices.length; i++) {
-      diff.push(prices[i] - prices[i - 1]);
+      logReturns.push(Math.log(prices[i] / prices[i - 1]));
     }
 
-    if (diff.length < 2) {
-      return { predictions: Array(5).fill(prices[prices.length - 1]), diff };
+    if (logReturns.length < 2) {
+      return { predictions: Array(5).fill(prices[prices.length - 1]) };
     }
 
-    // AR(1): regress diff[t] on diff[t-1]
-    const x = diff.slice(0, -1);
-    const y = diff.slice(1);
+    // AR(1): regress return[t] on return[t-1]
+    const x = logReturns.slice(0, -1);
+    const y = logReturns.slice(1);
 
     const meanX = x.reduce((a, b) => a + b, 0) / x.length;
     const meanY = y.reduce((a, b) => a + b, 0) / y.length;
@@ -70,41 +105,157 @@ class PredictionEngine {
       den += (x[i] - meanX) ** 2;
     }
 
-    const phi = den === 0 ? 0 : num / den;
+    const phi = den === 0 ? 0 : Math.max(-0.99, Math.min(0.99, num / den));
     const c = meanY - phi * meanX;
 
-    // Forecast
     const predictions = [];
     let lastPrice = prices[prices.length - 1];
-    let lastDiff = diff[diff.length - 1];
+    let lastReturn = logReturns[logReturns.length - 1];
 
     for (let i = 0; i < 5; i++) {
-      lastDiff = c + phi * lastDiff;
-      lastPrice = lastPrice + lastDiff;
+      lastReturn = c + phi * lastReturn;
+      lastPrice = lastPrice * Math.exp(lastReturn);
       predictions.push(lastPrice);
     }
 
-    return { predictions, diff, phi, c };
+    return { predictions, phi, c };
   }
 
-  // Ensemble Model combining multiple predictions
-  ensembleModel(prices) {
-    const linear = this.linearRegression(prices).predictions;
-    const exponential = this.exponentialRegression(prices).predictions;
-    const arima = this.arimaModel(prices).predictions;
+  // Walk-forward backtest to compute model weights
+  computeAdaptiveWeights(prices) {
+    const testWindow = Math.min(30, Math.floor(prices.length * 0.3));
+    const trainEnd = prices.length - testWindow;
+
+    if (trainEnd < 20) {
+      // Not enough data for walk-forward, use equal weights
+      return { linear: 0.3, arima: 0.4, exponential: 0.15, naive: 0.15 };
+    }
+
+    const modelNames = ['linear', 'arima', 'exponential', 'naive'];
+    const scores = {};
+
+    for (const name of modelNames) {
+      let hits = 0;
+      let totalError = 0;
+      let count = 0;
+
+      for (let i = trainEnd; i < prices.length - 1; i++) {
+        const trainData = prices.slice(0, i);
+        try {
+          const result = this.models[name](trainData);
+          const predicted = result.predictions[0];
+          const actual = prices[i];
+
+          // Directional accuracy
+          const predictedDir = predicted > trainData[trainData.length - 1] ? 1 : -1;
+          const actualDir = actual > trainData[trainData.length - 1] ? 1 : -1;
+          if (predictedDir === actualDir) hits++;
+
+          totalError += Math.abs(predicted - actual);
+          count++;
+        } catch (e) {
+          // Model failed, skip
+        }
+      }
+
+      if (count > 0) {
+        const hitRate = hits / count;
+        const mae = totalError / count;
+        const epsilon = prices[prices.length - 1] * 0.0001;
+        scores[name] = hitRate / (mae + epsilon);
+      } else {
+        scores[name] = 0;
+      }
+    }
+
+    // Normalize weights
+    const total = Object.values(scores).reduce((a, b) => a + b, 0);
+    const weights = {};
+    for (const name of modelNames) {
+      weights[name] = total > 0 ? Math.min(0.6, scores[name] / total) : 0.25;
+    }
+
+    // Re-normalize after capping
+    const capTotal = Object.values(weights).reduce((a, b) => a + b, 0);
+    for (const name of modelNames) {
+      weights[name] = capTotal > 0 ? weights[name] / capTotal : 0.25;
+    }
+
+    return weights;
+  }
+
+  // Adaptive Ensemble — replaces fixed 40/30/30
+  adaptiveEnsemble(prices) {
+    const weights = this.computeAdaptiveWeights(prices);
+    const modelNames = ['linear', 'arima', 'exponential', 'naive'];
+    const results = {};
+
+    for (const name of modelNames) {
+      try {
+        results[name] = this.models[name](prices).predictions;
+      } catch (e) {
+        results[name] = Array(5).fill(prices[prices.length - 1]);
+      }
+    }
 
     const predictions = [];
     for (let i = 0; i < 5; i++) {
-      // Weighted average: Linear 40%, Exponential 30%, ARIMA 30%
-      const avg = (linear[i] * 0.4 + exponential[i] * 0.3 + arima[i] * 0.3);
-      predictions.push(avg);
+      let weighted = 0;
+      for (const name of modelNames) {
+        weighted += (results[name][i] || prices[prices.length - 1]) * (weights[name] || 0);
+      }
+      predictions.push(weighted);
     }
 
-    return { predictions, models: { linear, exponential, arima } };
+    return { predictions, weights, models: results };
+  }
+
+  // Detect market regime
+  detectRegime(closes) {
+    const ema20 = TechnicalAnalysis.EMA(closes, Math.min(20, closes.length - 1));
+    const ema50 = TechnicalAnalysis.EMA(closes, Math.min(50, closes.length - 1));
+
+    const currentEma20 = ema20[ema20.length - 1];
+    const currentEma50 = ema50[ema50.length - 1];
+    const prevEma20 = ema20.length > 5 ? ema20[ema20.length - 6] : currentEma20;
+
+    // EMA20 slope as % of price
+    const emaSlope = (currentEma20 - prevEma20) / prevEma20;
+    const emaSeparation = (currentEma20 - currentEma50) / currentEma50;
+
+    // Trend strength from linear regression R²
+    const window = Math.min(20, closes.length);
+    const recent = closes.slice(-window);
+    const n = recent.length;
+    let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0, sumY2 = 0;
+    for (let i = 0; i < n; i++) {
+      sumX += i; sumY += recent[i]; sumXY += i * recent[i];
+      sumX2 += i * i; sumY2 += recent[i] * recent[i];
+    }
+    const ssXY = n * sumXY - sumX * sumY;
+    const ssXX = n * sumX2 - sumX * sumX;
+    const ssYY = n * sumY2 - sumY * sumY;
+    const rSquared = (ssXX > 0 && ssYY > 0) ? (ssXY * ssXY) / (ssXX * ssYY) : 0;
+
+    let regime = 'RANGING';
+    let trendStrength = rSquared;
+
+    if (rSquared > 0.4 && emaSlope > 0.001 && emaSeparation > 0.001) {
+      regime = 'TRENDING_UP';
+    } else if (rSquared > 0.4 && emaSlope < -0.001 && emaSeparation < -0.001) {
+      regime = 'TRENDING_DOWN';
+    }
+
+    return { regime, trendStrength, emaSlope, emaSeparation, rSquared };
   }
 
   // Main prediction function
   predict(priceData, model = 'ensemble') {
+    return this.predictWithLivePrice(priceData, null, model);
+  }
+
+  // Prediction anchored to live price when available
+  predictWithLivePrice(priceData, livePrice, model = 'ensemble') {
     if (!priceData || priceData.length < 14) {
       return { error: 'Insufficient data for prediction' };
     }
@@ -118,94 +269,166 @@ class PredictionEngine {
     const macd = TechnicalAnalysis.MACD(closes);
     const bbands = TechnicalAnalysis.BollingerBands(closes, 20);
     const atr = TechnicalAnalysis.ATR(highs, lows, closes, 14);
+    const adx = TechnicalAnalysis.ADX(highs, lows, closes, 14);
+    const sr = TechnicalAnalysis.SupportResistance(closes);
+
+    // Detect regime
+    const regimeInfo = this.detectRegime(closes);
 
     // Get predictions
-    const prediction = this.models[model](closes);
+    const modelFn = this.models[model] || this.models.ensemble;
+    const prediction = modelFn(closes);
+
+    // Anchor predictions to live price if available
+    const histPrice = closes[closes.length - 1];
+    const anchorPrice = livePrice || histPrice;
+    let predictions = prediction.predictions;
+
+    if (livePrice && livePrice !== histPrice) {
+      // Compute predicted returns from historical, apply to live price
+      predictions = prediction.predictions.map(p => {
+        const returnPct = (p - histPrice) / histPrice;
+        return anchorPrice * (1 + returnPct);
+      });
+    }
 
     // Generate signals
-    const currentPrice = closes[closes.length - 1];
-    const nextPrice = prediction.predictions[0];
+    const currentPrice = anchorPrice;
+    const nextPrice = predictions[0];
     const priceChange = ((nextPrice - currentPrice) / currentPrice) * 100;
     const currentATR = atr.length > 0 ? atr[atr.length - 1] : currentPrice * 0.001;
-    const currentRSI = rsi[rsi.length - 1];
-    const currentMACD = macd.histogram[macd.histogram.length - 1];
+    const currentRSI = rsi.length > 0 ? rsi[rsi.length - 1] : 50;
+    const currentMACD = macd.histogram.length > 0 ? macd.histogram[macd.histogram.length - 1] : 0;
     const prevMACD = macd.histogram.length > 1 ? macd.histogram[macd.histogram.length - 2] : 0;
-    const currentBB = bbands[bbands.length - 1];
+    const currentBB = bbands.length > 0 ? bbands[bbands.length - 1] : { upper: currentPrice, middle: currentPrice, lower: currentPrice };
+    const currentADX = adx.length > 0 ? adx[adx.length - 1] : 0;
 
-    // EMA trend: compare short EMA vs long EMA for trend direction
+    // EMA trend
     const ema9 = TechnicalAnalysis.EMA(closes, Math.min(9, closes.length - 1));
     const ema21 = TechnicalAnalysis.EMA(closes, Math.min(21, closes.length - 1));
     const emaTrend = ema9[ema9.length - 1] > ema21[ema21.length - 1] ? 'BULL' : 'BEAR';
 
-    // Stochastic for overbought/oversold confirmation
+    // Stochastic
     const stoch = TechnicalAnalysis.Stochastic(closes, Math.min(14, closes.length - 1));
     const currentStoch = stoch.length > 0 ? stoch[stoch.length - 1] : 50;
 
     const signal = this.generateSignal(
       priceChange, currentRSI, currentMACD, prevMACD, currentBB,
-      currentPrice, currentATR, emaTrend, currentStoch
+      currentPrice, currentATR, emaTrend, currentStoch,
+      regimeInfo, currentADX, sr, predictions
     );
 
     return {
       currentPrice,
-      predictions: prediction.predictions,
+      predictions,
       priceChange: parseFloat(priceChange.toFixed(2)),
       signal,
+      regime: regimeInfo,
       indicators: {
         rsi: currentRSI,
         macd: currentMACD,
         bbands: currentBB,
         atr: currentATR,
+        adx: currentADX,
         stochastic: currentStoch,
         emaTrend
       },
+      supportResistance: sr,
+      modelWeights: prediction.weights || null,
       timestamp: new Date()
     };
   }
 
-  // Generate Buy/Sell signals using multi-indicator scoring
-  generateSignal(priceChange, rsi, macdHist, prevMacdHist, bbands, currentPrice, atr, emaTrend, stoch) {
+  // Regime-aware signal generation with tradeability filter
+  generateSignal(priceChange, rsi, macdHist, prevMacdHist, bbands, currentPrice, atr, emaTrend, stoch, regime, adx, sr, predictions) {
     let score = 0;
     const reasons = [];
+    const regimeType = regime.regime;
 
-    // 1. RSI — continuous scoring, not just extremes
-    if (rsi < 20) { score += 1.5; reasons.push('RSI oversold (' + rsi.toFixed(0) + ')'); }
-    else if (rsi < 40) { score += 1.0; reasons.push('RSI bullish (' + rsi.toFixed(0) + ')'); }
-    else if (rsi < 50) { score += 0.3; reasons.push('RSI lean buy (' + rsi.toFixed(0) + ')'); }
-    else if (rsi > 80) { score -= 1.5; reasons.push('RSI overbought (' + rsi.toFixed(0) + ')'); }
-    else if (rsi > 60) { score -= 1.0; reasons.push('RSI bearish (' + rsi.toFixed(0) + ')'); }
-    else if (rsi >= 50) { score -= 0.3; reasons.push('RSI lean sell (' + rsi.toFixed(0) + ')'); }
+    // 1. RSI — regime-conditioned scoring
+    if (regimeType === 'TRENDING_UP') {
+      if (rsi < 35) { score += 1.5; reasons.push('RSI oversold in uptrend (' + rsi.toFixed(0) + ')'); }
+      else if (rsi < 50) { score += 1.0; reasons.push('RSI dip-buy zone (' + rsi.toFixed(0) + ')'); }
+      else if (rsi <= 70) { score += 0.2; reasons.push('RSI healthy uptrend (' + rsi.toFixed(0) + ')'); }
+      else if (rsi > 80) { score -= 1.0; reasons.push('RSI extended (' + rsi.toFixed(0) + ')'); }
+    } else if (regimeType === 'TRENDING_DOWN') {
+      if (rsi > 65) { score -= 1.5; reasons.push('RSI overbought in downtrend (' + rsi.toFixed(0) + ')'); }
+      else if (rsi > 50) { score -= 1.0; reasons.push('RSI bounce-sell zone (' + rsi.toFixed(0) + ')'); }
+      else if (rsi >= 30) { score -= 0.2; reasons.push('RSI healthy downtrend (' + rsi.toFixed(0) + ')'); }
+      else if (rsi < 20) { score += 1.0; reasons.push('RSI extreme oversold (' + rsi.toFixed(0) + ')'); }
+    } else {
+      // Ranging — classic mean-reversion RSI
+      if (rsi < 25) { score += 1.5; reasons.push('RSI oversold (' + rsi.toFixed(0) + ')'); }
+      else if (rsi < 40) { score += 0.8; reasons.push('RSI low (' + rsi.toFixed(0) + ')'); }
+      else if (rsi > 75) { score -= 1.5; reasons.push('RSI overbought (' + rsi.toFixed(0) + ')'); }
+      else if (rsi > 60) { score -= 0.8; reasons.push('RSI high (' + rsi.toFixed(0) + ')'); }
+    }
 
-    // 2. MACD — crossovers are strong, but direction always counts
+    // 2. MACD — crossovers are strong
     if (macdHist > 0 && prevMacdHist <= 0) { score += 1.5; reasons.push('MACD bullish crossover'); }
     else if (macdHist < 0 && prevMacdHist >= 0) { score -= 1.5; reasons.push('MACD bearish crossover'); }
     else if (macdHist > 0) { score += 0.75; reasons.push('MACD bullish'); }
     else if (macdHist < 0) { score -= 0.75; reasons.push('MACD bearish'); }
 
-    // 3. Bollinger Bands — where price sits in the range
+    // 3. Bollinger Bands — regime-conditioned
     const bbRange = bbands.upper - bbands.lower;
     const bbPos = bbRange > 0 ? (currentPrice - bbands.lower) / bbRange : 0.5;
-    if (bbPos <= 0.1) { score += 1.0; reasons.push('Price at lower BB'); }
-    else if (bbPos <= 0.35) { score += 0.5; reasons.push('Price in lower BB zone'); }
-    else if (bbPos >= 0.9) { score -= 1.0; reasons.push('Price at upper BB'); }
-    else if (bbPos >= 0.65) { score -= 0.5; reasons.push('Price in upper BB zone'); }
+    if (regimeType === 'RANGING') {
+      // Mean reversion works in ranges
+      if (bbPos <= 0.1) { score += 1.0; reasons.push('Price at lower BB (range)'); }
+      else if (bbPos <= 0.3) { score += 0.5; reasons.push('Price in lower BB zone'); }
+      else if (bbPos >= 0.9) { score -= 1.0; reasons.push('Price at upper BB (range)'); }
+      else if (bbPos >= 0.7) { score -= 0.5; reasons.push('Price in upper BB zone'); }
+    } else {
+      // In trends, BB walk is continuation not reversal
+      if (bbPos <= 0.15 && regimeType === 'TRENDING_UP') { score += 0.8; reasons.push('BB pullback in uptrend'); }
+      else if (bbPos >= 0.85 && regimeType === 'TRENDING_DOWN') { score -= 0.8; reasons.push('BB pullback in downtrend'); }
+    }
 
-    // 4. EMA trend — always contributes
+    // 4. EMA trend
     if (emaTrend === 'BULL') { score += 1.0; reasons.push('EMA uptrend'); }
     else { score -= 1.0; reasons.push('EMA downtrend'); }
 
-    // 5. Stochastic — wider zones
+    // 5. Stochastic
     if (stoch < 25) { score += 0.75; reasons.push('Stoch oversold'); }
-    else if (stoch < 45) { score += 0.25; reasons.push('Stoch low'); }
     else if (stoch > 75) { score -= 0.75; reasons.push('Stoch overbought'); }
-    else if (stoch > 55) { score -= 0.25; reasons.push('Stoch high'); }
 
-    // 6. Model prediction direction
+    // 6. ADX — trend strength modifier
+    if (adx > 25) {
+      reasons.push('Strong trend (ADX ' + adx.toFixed(0) + ')');
+      // Amplify trend signals when ADX confirms strong trend
+      if (regimeType === 'TRENDING_UP') score += 0.5;
+      else if (regimeType === 'TRENDING_DOWN') score -= 0.5;
+    } else if (adx < 15) {
+      reasons.push('Weak trend (ADX ' + adx.toFixed(0) + ')');
+    }
+
+    // 7. Support/Resistance proximity
+    if (sr && sr.resistance.length > 0) {
+      const nearestRes = sr.resistance.reduce((nearest, r) =>
+        Math.abs(r.price - currentPrice) < Math.abs(nearest.price - currentPrice) ? r : nearest
+      );
+      if (nearestRes.price > currentPrice && (nearestRes.price - currentPrice) < atr * 0.5) {
+        score -= 0.5;
+        reasons.push('Near resistance $' + nearestRes.price.toFixed(currentPrice > 100 ? 2 : 5));
+      }
+    }
+    if (sr && sr.support.length > 0) {
+      const nearestSup = sr.support.reduce((nearest, s) =>
+        Math.abs(s.price - currentPrice) < Math.abs(nearest.price - currentPrice) ? s : nearest
+      );
+      if (nearestSup.price < currentPrice && (currentPrice - nearestSup.price) < atr * 0.5) {
+        score += 0.5;
+        reasons.push('Near support $' + nearestSup.price.toFixed(currentPrice > 100 ? 2 : 5));
+      }
+    }
+
+    // 8. Model prediction direction
     if (priceChange > 0.01) { score += 0.75; reasons.push('Model predicts up'); }
     else if (priceChange < -0.01) { score -= 0.75; reasons.push('Model predicts down'); }
 
-    // Determine action — threshold at ±0.5 so most conditions produce a signal
-    const maxScore = 6.5;
+    // Determine action
+    const maxScore = 7.5;
     let action = 'HOLD';
     let confidence = 0;
 
@@ -220,40 +443,90 @@ class PredictionEngine {
       confidence = 0.5;
     }
 
-    // ATR-based stop loss and take profit (tight, realistic margins)
-    // SL = 1.5x ATR, TP = 2x ATR (1:1.33 R:R minimum)
-    const slDistance = atr * 1.5;
-    const tpDistance = atr * 2.0;
+    // Tradeability filter — expected move must exceed noise/spread
+    const expectedMove = Math.abs(predictions[0] - currentPrice);
+    const minRequiredMove = atr * 0.3;
+    let tradeable = expectedMove > minRequiredMove;
+    let tradeabilityReason = '';
+
+    if (!tradeable && action !== 'HOLD') {
+      tradeabilityReason = 'Expected move too small vs volatility';
+      action = 'HOLD';
+      confidence = 0.4;
+      reasons.push('⚠ Trade filtered: move < 0.3 ATR');
+    }
+
+    // Regime-adaptive ATR multiples for stops
+    let slMultiplier = 1.5;
+    let tpMultiplier = 2.0;
+    if (regimeType === 'RANGING') {
+      slMultiplier = 1.2;
+      tpMultiplier = 1.5;
+    } else if (adx > 30) {
+      // Strong trend — wider stops, bigger targets
+      slMultiplier = 2.0;
+      tpMultiplier = 3.0;
+    }
+
+    const slDistance = atr * slMultiplier;
+    const tpDistance = atr * tpMultiplier;
 
     let stop, target;
     if (action === 'BUY') {
-      stop = currentPrice - slDistance;
+      // Use nearest support as stop if available and closer than ATR-based
+      let structureStop = currentPrice - slDistance;
+      if (sr && sr.support.length > 0) {
+        const nearSup = sr.support.find(s => s.price < currentPrice);
+        if (nearSup && (currentPrice - nearSup.price) < slDistance * 1.5) {
+          structureStop = nearSup.price - atr * 0.3;
+        }
+      }
+      stop = structureStop;
       target = currentPrice + tpDistance;
     } else if (action === 'SELL') {
-      stop = currentPrice + slDistance;
+      let structureStop = currentPrice + slDistance;
+      if (sr && sr.resistance.length > 0) {
+        const nearRes = sr.resistance.find(r => r.price > currentPrice);
+        if (nearRes && (nearRes.price - currentPrice) < slDistance * 1.5) {
+          structureStop = nearRes.price + atr * 0.3;
+        }
+      }
+      stop = structureStop;
       target = currentPrice - tpDistance;
     } else {
       stop = currentPrice - slDistance;
       target = currentPrice + tpDistance;
     }
 
+    const actualSlDistance = Math.abs(currentPrice - stop);
+    const actualTpDistance = Math.abs(target - currentPrice);
+    const riskReward = actualSlDistance > 0 ? actualTpDistance / actualSlDistance : 0;
+
+    const dp = currentPrice > 100 ? 2 : 5;
     const summary = action === 'BUY'
-      ? `Buy — price expected to rise. Enter at $${currentPrice.toFixed(currentPrice > 100 ? 2 : 5)}, stop at $${stop.toFixed(currentPrice > 100 ? 2 : 5)}, target $${target.toFixed(currentPrice > 100 ? 2 : 5)} (R:R 1:${(tpDistance / slDistance).toFixed(1)})`
+      ? `Buy — ${regimeType.toLowerCase()} regime. Enter at $${currentPrice.toFixed(dp)}, stop $${stop.toFixed(dp)}, target $${target.toFixed(dp)} (R:R 1:${riskReward.toFixed(1)})`
       : action === 'SELL'
-      ? `Sell — price expected to drop. Enter at $${currentPrice.toFixed(currentPrice > 100 ? 2 : 5)}, stop at $${stop.toFixed(currentPrice > 100 ? 2 : 5)}, target $${target.toFixed(currentPrice > 100 ? 2 : 5)} (R:R 1:${(tpDistance / slDistance).toFixed(1)})`
-      : `Hold — no strong directional bias. Wait for clearer entry signal.`;
+      ? `Sell — ${regimeType.toLowerCase()} regime. Enter at $${currentPrice.toFixed(dp)}, stop $${stop.toFixed(dp)}, target $${target.toFixed(dp)} (R:R 1:${riskReward.toFixed(1)})`
+      : `Hold — no strong edge. ${regimeType.toLowerCase()} market, wait for clearer setup.`;
 
     return {
       action,
       confidence: parseFloat(confidence.toFixed(3)),
       summary,
+      regime: regimeType,
       margins: {
         entry: currentPrice,
-        stop: parseFloat(stop.toFixed(currentPrice > 100 ? 2 : 5)),
-        target: parseFloat(target.toFixed(currentPrice > 100 ? 2 : 5)),
-        slPips: parseFloat((slDistance * (currentPrice > 100 ? 10 : 10000)).toFixed(1)),
-        tpPips: parseFloat((tpDistance * (currentPrice > 100 ? 10 : 10000)).toFixed(1)),
-        riskReward: parseFloat((tpDistance / slDistance).toFixed(2))
+        stop: parseFloat(stop.toFixed(dp)),
+        target: parseFloat(target.toFixed(dp)),
+        slPips: parseFloat((actualSlDistance * (currentPrice > 100 ? 10 : 10000)).toFixed(1)),
+        tpPips: parseFloat((actualTpDistance * (currentPrice > 100 ? 10 : 10000)).toFixed(1)),
+        riskReward: parseFloat(riskReward.toFixed(2))
+      },
+      tradeability: {
+        tradeable,
+        expectedMovePips: parseFloat((expectedMove * (currentPrice > 100 ? 10 : 10000)).toFixed(1)),
+        minRequiredMovePips: parseFloat((minRequiredMove * (currentPrice > 100 ? 10 : 10000)).toFixed(1)),
+        reason: tradeabilityReason
       },
       score: parseFloat(score.toFixed(2)),
       reasons
