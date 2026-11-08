@@ -21,7 +21,7 @@
     "jsdom": "^31.0.0"
   },
   "engines": {
-    "node": "20.x"
+    "node": "26.x"
   },
   "author": "Franklin Chilango",
   "license": "ISC"
