@@ -6,16 +6,19 @@
   "scripts": {
     "start": "node server/app.js",
     "dev": "nodemon server/app.js",
-    "build": "echo 'Build complete'"
+    "build": "echo 'Build complete'",
+    "test": "node --test \"test/*.test.js\" && node test/dom.smoke.js && node test/three.smoke.js"
   },
   "dependencies": {
-    "express": "^4.18.2",
     "axios": "^1.6.0",
     "cors": "^2.8.5",
-    "dotenv": "^16.3.1"
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "express-rate-limit": "^8.7.3"
   },
   "devDependencies": {
-    "tailwindcss": "^3.4.1"
+    "tailwindcss": "^3.4.1",
+    "jsdom": "^31.0.0"
   },
   "engines": {
     "node": "20.x"

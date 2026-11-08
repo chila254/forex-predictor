@@ -114,14 +114,33 @@ class TechnicalAnalysis {
   }
 
   // ATR (Average True Range)
+  // Note: when the source is close-only (e.g. Frankfurter sets high=low=close)
+  // the intrabar range (tr1) collapses to zero and only the close-to-close move
+  // (tr2/tr3) carries information, so volatility stays realistic.
   static ATR(high, low, close, period = 14) {
     const tr = [];
-    
+
     for (let i = 1; i < close.length; i++) {
       const tr1 = high[i] - low[i];
       const tr2 = Math.abs(high[i] - close[i - 1]);
       const tr3 = Math.abs(low[i] - close[i - 1]);
       tr.push(Math.max(tr1, tr2, tr3));
+    }
+
+    // Close-only data can produce near-zero ATR if price gaps are tiny.
+    // Floor it with a rolling close-to-close volatility estimate so downstream
+    // stop/target sizing never degenerates.
+    const closeOnly = close.every((c, i) => high[i] === c && low[i] === c);
+    if (closeOnly && tr.length > period) {
+      const changes = [];
+      for (let i = 1; i < close.length; i++) changes.push(Math.abs(close[i] - close[i - 1]));
+      for (let i = 0; i < tr.length; i++) {
+        const windowStart = Math.max(0, i + 1 - period);
+        const window = changes.slice(windowStart, i + 1);
+        const mean = window.reduce((a, b) => a + b, 0) / window.length;
+        // Typical intrabar range ≈ 1.5× mean absolute move; keeps ATR honest.
+        tr[i] = Math.max(tr[i], mean * 1.5);
+      }
     }
 
     const atr = [];
@@ -152,6 +171,18 @@ class TechnicalAnalysis {
       const tr2 = Math.abs(high[i] - close[i - 1]);
       const tr3 = Math.abs(low[i] - close[i - 1]);
       tr.push(Math.max(tr1, tr2, tr3));
+    }
+
+    // Close-only source: derive directional movement from close-to-close
+    // changes, otherwise +DM/-DM are always zero and ADX is meaningless.
+    const closeOnly = close.every((c, i) => high[i] === c && low[i] === c);
+    if (closeOnly) {
+      for (let i = 1; i < close.length; i++) {
+        const delta = close[i] - close[i - 1];
+        plusDM[i - 1] = delta > 0 ? delta : 0;
+        minusDM[i - 1] = delta < 0 ? -delta : 0;
+        tr[i - 1] = Math.abs(delta) || tr[i - 1];
+      }
     }
 
     // Smoothed averages using Wilder's method

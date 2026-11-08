@@ -1,5 +1,4 @@
 // ========== State ==========
-var chart = null;
 var currentAsset = 'EURUSD';
 var currentModel = 'ensemble';
 var currentTimeframe = 'D';
@@ -8,6 +7,7 @@ var autoRefreshEnabled = false;
 var autoRefreshInterval = null;
 var currentDataSource = 'unknown';
 var currentPrices = {};
+var lastPrediction = null;
 var sessionId = localStorage.getItem('fx_sessionId') || (function() {
   var id = 'sess_' + Date.now().toString(36) + Math.random().toString(36).slice(2);
   localStorage.setItem('fx_sessionId', id);
@@ -20,20 +20,25 @@ var ASSET_NAMES = {
   EURGBP:'EUR/GBP', EURJPY:'EUR/JPY'
 };
 
-var TV_SYMBOLS = {
-  EURUSD:'FX:EURUSD', GBPUSD:'FX:GBPUSD', USDJPY:'FX:USDJPY', USDCHF:'FX:USDCHF',
-  AUDUSD:'FX:AUDUSD', USDCAD:'FX:USDCAD', NZDUSD:'FX:NZDUSD', XAUUSD:'OANDA:XAUUSD',
-  EURGBP:'FX:EURGBP', EURJPY:'FX:EURJPY'
-};
+var COLORS = { up:'#34e59b', down:'#ff6b81', warn:'#ffd166', accent:'#5b8cff', accent2:'#22d3ee', dim:'#8b9ab8' };
 
-var TV_INTERVALS = { '5M':'5', '15M':'15', '1H':'60', '4H':'240', 'D':'D' };
+// Escape untrusted strings (news titles, notes, provider fields) before
+// interpolating into innerHTML.
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 
 // ========== Init ==========
 document.addEventListener('DOMContentLoaded', function() {
   loadTheme();
   checkNotifState();
   setupEventListeners();
-  initTradingView();
+  init3D();
   loadInitialData();
   loadPredictionHistory();
   loadAlerts();
@@ -41,6 +46,7 @@ document.addEventListener('DOMContentLoaded', function() {
   loadWatchlist();
   loadJournal();
   loadCorrelation();
+  loadHistoryChart();
 });
 
 function setupEventListeners() {
@@ -48,7 +54,7 @@ function setupEventListeners() {
     currentAsset = e.target.value;
     updateAssetName();
     loadInitialData();
-    initTradingView();
+    loadHistoryChart();
   });
   document.getElementById('modelSelect').addEventListener('change', function(e) { currentModel = e.target.value; });
   document.getElementById('predictBtn').addEventListener('click', getPrediction);
@@ -64,7 +70,7 @@ function setupEventListeners() {
       document.querySelectorAll('.tf-btn[data-tf]').forEach(function(b) { b.classList.remove('active'); });
       btn.classList.add('active');
       currentTimeframe = btn.dataset.tf;
-      initTradingView();
+      loadHistoryChart();
     });
   });
 }
@@ -82,60 +88,31 @@ function toggleTheme() {
   document.documentElement.setAttribute('data-theme', next);
   localStorage.setItem('fx_theme', next);
   document.getElementById('themeToggle').innerHTML = '<span class="mi mi-sm">' + (next === 'dark' ? 'dark_mode' : 'light_mode') + '</span>';
-  initTradingView();
-}
-
-// ========== TradingView Chart (iframe embed) ==========
-function initTradingView() {
-  var theme = document.documentElement.getAttribute('data-theme') || 'dark';
-  var container = document.getElementById('tradingview_chart');
-  if (!container) return;
-
-  var symbol = encodeURIComponent(TV_SYMBOLS[currentAsset] || 'FX:EURUSD');
-  var interval = TV_INTERVALS[currentTimeframe] || 'D';
-  var tvTheme = theme === 'light' ? 'light' : 'dark';
-
-  var url = 'https://s.tradingview.com/widgetembed/?hideideas=1&overrides=&enabled_features=&disabled_features=&locale=en'
-    + '#%7B%22symbol%22%3A%22' + symbol + '%22'
-    + '%2C%22frameElementId%22%3A%22tradingview_chart%22'
-    + '%2C%22interval%22%3A%22' + interval + '%22'
-    + '%2C%22theme%22%3A%22' + tvTheme + '%22'
-    + '%2C%22style%22%3A%221%22'
-    + '%2C%22timezone%22%3A%22Etc%2FUTC%22'
-    + '%2C%22withdateranges%22%3A%221%22'
-    + '%2C%22hide_side_toolbar%22%3A%220%22'
-    + '%2C%22allow_symbol_change%22%3A%220%22'
-    + '%2C%22save_image%22%3A%220%22'
-    + '%2C%22utm_source%22%3A%22forex-predictor%22'
-    + '%2C%22utm_medium%22%3A%22widget_new%22%7D';
-
-  container.innerHTML = '<iframe src="' + url + '" style="width:100%;height:100%;border:none;" allowtransparency="true" allowfullscreen></iframe>';
+  // Rebuild 3D with new palette
+  setTimeout(function() { rebuild3DColors(); }, 60);
 }
 
 // ========== Notifications ==========
 function enableNotifications() {
-  if (!('Notification' in window)) {
-    showToast('Your browser does not support notifications', 'warning');
-    return;
-  }
+  if (!('Notification' in window)) { showToast('Notifications unsupported in this browser', 'warning'); return; }
   if (Notification.permission === 'denied') {
-    showToast('Notifications were blocked. Go to your browser settings → Site permissions → Notifications → Allow for this site, then refresh.', 'error', 8000);
+    showToast('Notifications blocked. Enable in browser settings → site permissions → notifications.', 'error', 8000);
     return;
   }
   if (Notification.permission === 'granted') {
-    showToast('Notifications already enabled!', 'success');
+    showToast('Notifications already enabled', 'success');
     document.getElementById('notifBtn').innerHTML = '<span class="mi mi-sm">notifications_active</span>';
     return;
   }
   Notification.requestPermission().then(function(perm) {
     if (perm === 'granted') {
-      showToast('Notifications enabled!', 'success');
+      showToast('Notifications enabled', 'success');
       document.getElementById('notifBtn').innerHTML = '<span class="mi mi-sm">notifications_active</span>';
       playAlertSound();
     } else if (perm === 'denied') {
-      showToast('Notifications blocked. You can enable them in browser settings → Site permissions.', 'error', 6000);
+      showToast('Notifications blocked', 'error', 6000);
     } else {
-      showToast('Notification permission dismissed. Click again to retry.', 'warning');
+      showToast('Notification permission dismissed', 'warning');
     }
   });
 }
@@ -174,14 +151,14 @@ function updateDataSourceBadge(source, errorMsg) {
   var errorDetail = document.getElementById('mockErrorDetail');
   currentDataSource = source;
   if (source === 'live') {
-    badge.style.background = 'rgba(134,239,172,0.1)'; badge.style.color = '#86efac';
-    dot.textContent = 'circle'; text.textContent = 'LIVE DATA';
+    dot.classList.remove('off');
+    text.textContent = 'LIVE DATA';
     warning.classList.remove('visible');
   } else {
-    badge.style.background = 'rgba(252,165,165,0.1)'; badge.style.color = '#fca5a5';
-    dot.textContent = 'circle'; text.textContent = 'MOCK DATA';
+    dot.classList.add('off');
+    text.textContent = 'OFFLINE';
     warning.classList.add('visible');
-    if (errorMsg) errorDetail.textContent = '(' + errorMsg + ')';
+    if (errorMsg) errorDetail.textContent = errorMsg;
   }
 }
 
@@ -189,31 +166,31 @@ function updateDataSourceBadge(source, errorMsg) {
 function setLoading(isLoading) {
   var btn = document.getElementById('predictBtn');
   btn.disabled = isLoading;
-  btn.innerHTML = isLoading ? '<span class="mi mi-sm">hourglass_empty</span> Loading...' : '<span class="mi mi-sm">auto_awesome</span> Predict';
-  btn.style.opacity = isLoading ? '0.7' : '1';
+  btn.innerHTML = isLoading ? '<span class="mi mi-sm">hourglass_empty</span> Loading…' : '<span class="mi mi-sm">auto_awesome</span> Predict';
 }
 
 function showToast(message, type, duration) {
   type = type || 'info'; duration = duration || 4000;
+  var stack = document.getElementById('toastStack');
   var toast = document.createElement('div');
-  var colors = { success:'background:rgba(6,78,59,0.5);color:#86efac;', error:'background:rgba(127,29,29,0.5);color:#fca5a5;', warning:'background:rgba(120,53,15,0.5);color:#fcd34d;', info:'background:rgba(12,74,110,0.5);color:#7dd3fc;', alert:'background:rgba(88,28,135,0.5);color:#d8b4fe;' };
-  toast.style.cssText = 'position:fixed;top:16px;right:16px;z-index:100;padding:12px 20px;border-radius:16px;font-weight:500;font-size:0.875rem;max-width:360px;font-family:Inter,system-ui,sans-serif;backdrop-filter:blur(8px);' + (colors[type] || colors.info);
-  toast.style.animation = 'slideIn 0.3s ease-out';
+  toast.className = 'toast ' + type;
   toast.textContent = message;
-  document.body.appendChild(toast);
-  setTimeout(function() { toast.style.animation = 'slideOut 0.3s ease-out'; setTimeout(function() { toast.remove(); }, 300); }, duration);
+  stack.appendChild(toast);
+  setTimeout(function() { toast.style.opacity = '0'; toast.style.transition = 'opacity 0.3s'; setTimeout(function() { toast.remove(); }, 300); }, duration);
 }
 
 // ========== Auto Refresh ==========
 function toggleAutoRefresh() {
-  var btn = document.getElementById('autoRefreshToggle');
+  var label = document.getElementById('autoRefreshLabel');
   autoRefreshEnabled = !autoRefreshEnabled;
   if (autoRefreshEnabled) {
-    btn.innerHTML = '<span class="mi mi-sm">sync</span> ON'; btn.style.color = '#86efac';
+    label.textContent = 'ON';
+    label.style.color = COLORS.up;
     autoRefreshInterval = setInterval(function() { loadInitialData(true); loadWatchlist(); checkAlerts(); checkPredictionAccuracy(); }, 30000);
     showToast('Auto-refresh enabled (30s)', 'success');
   } else {
-    btn.innerHTML = '<span class="mi mi-sm">sync_disabled</span> OFF'; btn.style.color = '';
+    label.textContent = 'OFF';
+    label.style.color = '';
     if (autoRefreshInterval) clearInterval(autoRefreshInterval);
     autoRefreshInterval = null;
     showToast('Auto-refresh disabled', 'info');
@@ -222,6 +199,11 @@ function toggleAutoRefresh() {
 
 function updateAssetName() {
   document.getElementById('assetName').textContent = ASSET_NAMES[currentAsset] || currentAsset;
+}
+
+function fmtPrice(p) {
+  var dp = p > 100 ? 2 : (p > 10 ? 4 : 5);
+  return parseFloat(p).toFixed(dp);
 }
 
 // ========== Watchlist ==========
@@ -235,17 +217,13 @@ async function loadWatchlist() {
     Object.keys(data.prices).forEach(function(sym) {
       var p = data.prices[sym];
       var change = ((p.price - p.close) / p.close * 100);
-      var cc = change >= 0 ? '#86efac' : '#fca5a5';
-      var cb = change >= 0 ? 'rgba(134,239,172,0.08)' : 'rgba(252,165,165,0.08)';
+      var cc = change >= 0 ? COLORS.up : COLORS.down;
+      var cb = change >= 0 ? 'rgba(52,229,155,0.12)' : 'rgba(255,107,129,0.12)';
       currentPrices[sym] = p.price;
-      var dp = p.price > 100 ? 2 : (p.price > 10 ? 4 : 5);
-      html += '<div class="m3-card" style="padding:14px;cursor:pointer;" onclick="selectWatchlistPair(\'' + sym + '\')">' +
-        '<div class="flex justify-between items-center mb-1">' +
-        '<span class="md-label-large" style="color:var(--md-on-surface);">' + sym.slice(0,3) + '/' + sym.slice(3) + '</span>' +
-        '<span class="md-label-small px-2 py-0.5 rounded" style="background:' + cb + ';color:' + cc + ';">' + (change >= 0 ? '+' : '') + change.toFixed(2) + '%</span>' +
-        '</div>' +
-        '<div class="md-headline-small" style="color:var(--md-primary);">' + parseFloat(p.price).toFixed(dp) + '</div>' +
-        '<div class="md-label-small mt-1" style="color:' + (p.source === 'live' ? '#86efac' : '#fca5a5') + ';"><span class="mi mi-xs">circle</span></div>' +
+      html += '<div class="watch-chip" onclick="selectWatchlistPair(\'' + sym + '\')">' +
+        '<div class="wc-top"><span class="wc-sym">' + sym.slice(0,3) + '/' + sym.slice(3) + '</span>' +
+        '<span class="wc-chg" style="color:' + cc + ';background:' + cb + '">' + (change >= 0 ? '+' : '') + change.toFixed(2) + '%</span></div>' +
+        '<div class="wc-price" style="color:' + (change >= 0 ? COLORS.up : COLORS.down) + '">' + fmtPrice(p.price) + '</div>' +
         '</div>';
     });
     container.innerHTML = html;
@@ -257,7 +235,7 @@ function selectWatchlistPair(sym) {
   document.getElementById('assetSelect').value = sym;
   updateAssetName();
   loadInitialData();
-  initTradingView();
+  loadHistoryChart();
 }
 
 // ========== Load Price Data ==========
@@ -271,6 +249,8 @@ async function loadInitialData(silent) {
     updateDataSourceBadge(data.source, data.sourceError);
     updatePriceDisplay(data);
     currentPrices[currentAsset] = data.price;
+    document.getElementById('heroPrice').textContent = '$' + fmtPrice(data.price);
+    document.getElementById('heroPriceLabel').textContent = ASSET_NAMES[currentAsset] || currentAsset;
   } catch (error) {
     console.error('Error:', error);
     if (!silent) showToast('Failed: ' + error.message, 'error');
@@ -280,16 +260,14 @@ async function loadInitialData(silent) {
 }
 
 function updatePriceDisplay(data) {
-  var dp = data.price > 100 ? 2 : (data.price > 10 ? 4 : 5);
-  document.getElementById('currentPrice').textContent = '$' + parseFloat(data.price).toFixed(dp);
+  document.getElementById('currentPrice').textContent = '$' + fmtPrice(data.price);
   var el = document.getElementById('priceChange');
   var change = ((data.price - data.close) / data.close) * 100;
-  el.textContent = (change > 0 ? '+' : '') + change.toFixed(2) + '%';
-  el.style.background = change > 0 ? 'rgba(134,239,172,0.15)' : 'rgba(252,165,165,0.15)';
-  el.style.color = change > 0 ? '#86efac' : '#fca5a5';
-  document.getElementById('dayHigh').textContent = parseFloat(data.high).toFixed(dp);
-  document.getElementById('dayLow').textContent = parseFloat(data.low).toFixed(dp);
-  document.getElementById('openPrice').textContent = parseFloat(data.open).toFixed(dp);
+  el.textContent = (change > 0 ? '▲ ' : change < 0 ? '▼ ' : '') + change.toFixed(2) + '%';
+  el.className = 'chg-badge ' + (change >= 0 ? 'chg-up' : 'chg-down');
+  document.getElementById('dayHigh').textContent = fmtPrice(data.high);
+  document.getElementById('dayLow').textContent = fmtPrice(data.low);
+  document.getElementById('openPrice').textContent = fmtPrice(data.open);
   document.getElementById('volumeValue').textContent = (data.volume || 0).toLocaleString();
   document.getElementById('lastUpdated').textContent = new Date().toLocaleTimeString();
 }
@@ -306,6 +284,8 @@ async function getPrediction() {
     var prediction = await response.json();
     if (!prediction.success) { showToast(prediction.error || 'Failed', 'error'); return; }
     if (prediction.dataSource) updateDataSourceBadge(prediction.dataSource, null);
+    lastPrediction = prediction;
+
     var tfNames = {'5M':'5 Min','15M':'15 Min','1H':'1 Hour','4H':'4 Hour','D':'Daily'};
     var actualTf = prediction.actualTimeframe || currentTimeframe;
     var tfLabel = tfNames[actualTf] || tfNames[currentTimeframe] || 'Daily';
@@ -313,11 +293,11 @@ async function getPrediction() {
     badge.textContent = tfLabel;
     if (actualTf !== currentTimeframe) {
       badge.textContent = tfLabel + ' (fallback)';
-      badge.style.background = 'rgba(252,165,165,0.15)';
-      badge.style.color = '#fca5a5';
+      badge.style.background = 'rgba(255,107,129,0.16)';
+      badge.style.color = COLORS.down;
     } else {
-      badge.style.background = 'rgba(125,211,252,0.15)';
-      badge.style.color = 'var(--md-primary)';
+      badge.style.background = 'rgba(91,140,255,0.16)';
+      badge.style.color = COLORS.accent;
     }
     if (prediction.warnings && prediction.warnings.length > 0) {
       showToast('⚠ ' + prediction.warnings[0], 'warning', 6000);
@@ -325,80 +305,84 @@ async function getPrediction() {
     updateSignalDisplay(prediction);
     updateIndicators(prediction.indicators);
     updatePredictionsTable(prediction.predictions, prediction.currentPrice);
+    updateHeroMetrics(prediction);
+    update3DPriceChart(prediction);
+    update3DGauges(prediction.indicators);
     savePredictionToHistory(prediction);
     loadMultiTimeframe();
-    var tt = prediction.signal.action === 'BUY' ? 'success' : prediction.signal.action === 'SELL' ? 'warning' : 'info';
-    showToast(prediction.signal.action + ' (' + Math.round(prediction.signal.confidence * 100) + '% confidence)', tt);
+    var tt = prediction.signal.action === 'BUY' ? 'success' : prediction.signal.action === 'SELL' ? 'error' : 'info';
+    showToast(prediction.signal.action + ' · ' + Math.round(prediction.signal.confidence * 100) + '% confidence', tt);
   } catch (error) {
     showToast('Prediction failed: ' + error.message, 'error');
   } finally { setLoading(false); }
+}
+
+function updateHeroMetrics(p) {
+  var c = p.signal.action === 'BUY' ? COLORS.up : p.signal.action === 'SELL' ? COLORS.down : COLORS.warn;
+  document.getElementById('heroSignal').textContent = p.signal.action;
+  document.getElementById('heroSignal').style.color = c;
+  document.getElementById('heroConf').textContent = Math.round(p.signal.confidence * 100) + '%';
+  var rn = { TRENDING_UP:'Uptrend', TRENDING_DOWN:'Downtrend', RANGING:'Ranging' };
+  document.getElementById('heroRegime').textContent = rn[p.regime.regime] || p.regime.regime;
 }
 
 function updateSignalDisplay(prediction) {
   var signal = prediction.signal;
   var confPercent = Math.round(signal.confidence * 100);
   var styles = {
-    BUY: { bg:'rgba(134,239,172,0.06)', border:'rgba(134,239,172,0.3)', color:'#86efac' },
-    SELL: { bg:'rgba(252,165,165,0.06)', border:'rgba(252,165,165,0.3)', color:'#fca5a5' },
-    HOLD: { bg:'rgba(253,224,71,0.06)', border:'rgba(253,224,71,0.3)', color:'#fde047' }
+    BUY: { bg:'rgba(52,229,155,0.06)', border:'rgba(52,229,155,0.35)', color:COLORS.up },
+    SELL: { bg:'rgba(255,107,129,0.06)', border:'rgba(255,107,129,0.35)', color:COLORS.down },
+    HOLD: { bg:'rgba(255,209,102,0.06)', border:'rgba(255,209,102,0.35)', color:COLORS.warn }
   };
   var s = styles[signal.action] || styles.HOLD;
-  // Show regime if available
   var regimeLabel = '';
   if (prediction.regime && prediction.regime.regime) {
-    var regimeColors = { TRENDING_UP: '#86efac', TRENDING_DOWN: '#fca5a5', RANGING: '#fcd34d' };
+    var regimeColors = { TRENDING_UP: COLORS.up, TRENDING_DOWN: COLORS.down, RANGING: COLORS.warn };
     var regimeNames = { TRENDING_UP: '↑ Uptrend', TRENDING_DOWN: '↓ Downtrend', RANGING: '↔ Ranging' };
-    regimeLabel = '<div class="md-label-small px-2 py-1 rounded-lg mb-2" style="display:inline-block;background:rgba(0,0,0,0.2);color:' + (regimeColors[prediction.regime.regime] || '#94a3b8') + ';">' + (regimeNames[prediction.regime.regime] || prediction.regime.regime) + '</div>';
+    regimeLabel = '<div style="display:inline-block;font-size:0.68rem;padding:3px 10px;border-radius:8px;margin-bottom:10px;background:rgba(255,255,255,0.06);color:' + (regimeColors[prediction.regime.regime] || COLORS.dim) + '">' + (regimeNames[prediction.regime.regime] || prediction.regime.regime) + '</div>';
   }
   var box = document.getElementById('signalBox');
   box.style.background = s.bg; box.style.borderColor = s.border;
   var act = document.getElementById('signalAction');
   act.innerHTML = regimeLabel + '<div>' + signal.action + '</div>'; act.style.color = s.color;
-  document.getElementById('confidenceBar').style.width = confPercent + '%';
-  document.getElementById('confidenceBar').style.background = s.color;
+  var bar = document.getElementById('confidenceBar');
+  bar.style.width = confPercent + '%'; bar.style.background = s.color;
   document.getElementById('confidencePercent').textContent = confPercent + '%';
-  // Show signal reasons
+
   var reasonsEl = document.getElementById('signalReasons');
   if (reasonsEl && signal.reasons && signal.reasons.length) {
-    reasonsEl.innerHTML = signal.reasons.map(function(r) {
-      return '<span class="md-label-small px-2 py-0.5 rounded" style="background:var(--md-sch);color:var(--md-on-sv);">' + r + '</span>';
-    }).join(' ');
+    reasonsEl.innerHTML = signal.reasons.map(function(r) { return '<span class="reason-chip">' + esc(r) + '</span>'; }).join(' ');
     reasonsEl.style.display = 'flex';
   }
   var summaryEl = document.getElementById('signalSummary');
   if (summaryEl && signal.summary) {
     summaryEl.textContent = signal.summary;
     summaryEl.style.display = 'block';
-    summaryEl.style.color = s.color;
   }
-  // Margins with pip values
+
   var dp = signal.margins.entry > 100 ? 2 : 5;
   document.getElementById('entryPrice').textContent = '$' + parseFloat(signal.margins.entry).toFixed(dp);
   var slText = '$' + parseFloat(signal.margins.stop).toFixed(dp);
   var tpText = '$' + parseFloat(signal.margins.target).toFixed(dp);
-  if (signal.margins.slPips) slText += ' (' + signal.margins.slPips + ' pips)';
-  if (signal.margins.tpPips) tpText += ' (' + signal.margins.tpPips + ' pips)';
+  if (signal.margins.slPips) slText += ' · ' + signal.margins.slPips + ' pips';
+  if (signal.margins.tpPips) tpText += ' · ' + signal.margins.tpPips + ' pips';
   document.getElementById('stopLoss').textContent = slText;
   document.getElementById('takeProfit').textContent = tpText;
-  // Risk:Reward
   var rrEl = document.getElementById('riskRewardRatio');
-  if (rrEl && signal.margins.riskReward) {
-    rrEl.textContent = '1:' + signal.margins.riskReward;
-  }
+  if (rrEl && signal.margins.riskReward) rrEl.textContent = '1 : ' + signal.margins.riskReward;
 }
 
 function updateIndicators(indicators) {
   var rsiEl = document.getElementById('rsiValue');
-  rsiEl.textContent = indicators.rsi.toFixed(2);
-  rsiEl.style.color = indicators.rsi > 70 ? '#fca5a5' : indicators.rsi < 30 ? '#86efac' : 'var(--md-primary)';
+  rsiEl.textContent = indicators.rsi.toFixed(1);
+  rsiEl.style.color = indicators.rsi > 70 ? COLORS.down : indicators.rsi < 30 ? COLORS.up : COLORS.accent;
   document.getElementById('macdValue').textContent = indicators.macd.toFixed(4);
   document.getElementById('bbandsValue').textContent = indicators.bbands.middle.toFixed(2);
-  document.getElementById('atrValue').textContent = indicators.atr.toFixed(2);
-  // Update ADX if available
+  document.getElementById('atrValue').textContent = indicators.atr.toFixed(4);
   var adxEl = document.getElementById('adxValue');
   if (adxEl && indicators.adx !== undefined) {
     adxEl.textContent = indicators.adx.toFixed(1);
-    adxEl.style.color = indicators.adx > 25 ? '#86efac' : indicators.adx < 15 ? '#fca5a5' : 'var(--md-primary)';
+    adxEl.style.color = indicators.adx > 25 ? COLORS.up : indicators.adx < 15 ? COLORS.down : COLORS.accent;
   }
 }
 
@@ -412,17 +396,15 @@ var TF_LABELS = {
 
 function updatePredictionsTable(predictions, currentPrice) {
   var dp = currentPrice > 100 ? 2 : 5;
-  var tbody = document.getElementById('predictionsTable');
   var labels = TF_LABELS[currentTimeframe] || TF_LABELS['D'];
   var rows = predictions.map(function(price, i) {
     var change = ((price - currentPrice) / currentPrice) * 100;
-    var cc = change > 0 ? '#86efac' : '#fca5a5';
-    return '<div class="grid grid-cols-3 gap-2 py-2.5 px-3 rounded-xl" style="border-bottom:1px solid var(--md-outline);">' +
-      '<div class="text-sm">' + labels[i] + '</div>' +
-      '<div class="text-sm">$' + parseFloat(price).toFixed(dp) + '</div>' +
-      '<div class="text-sm font-semibold" style="color:' + cc + ';">' + (change > 0 ? '+' : '') + change.toFixed(2) + '%</div></div>';
+    var cc = change > 0 ? COLORS.up : change < 0 ? COLORS.down : COLORS.dim;
+    return '<div class="pred-row"><span class="dim">' + labels[i] + '</span>' +
+      '<span>$' + parseFloat(price).toFixed(dp) + '</span>' +
+      '<span style="font-weight:700;color:' + cc + '">' + (change > 0 ? '+' : '') + change.toFixed(2) + '%</span></div>';
   }).join('');
-  tbody.innerHTML = rows || '<div class="text-center py-4" style="color:var(--md-on-sv);">No predictions</div>';
+  document.getElementById('predictionsTable').innerHTML = rows || '<div class="center dim" style="padding:20px 0">No predictions</div>';
 }
 
 // ========== Alerts ==========
@@ -439,9 +421,9 @@ async function addAlert() {
     var data = await response.json();
     if (data.success) {
       document.getElementById('alertPrice').value = '';
-      showToast('Alert: ' + symbol + ' ' + condition + ' $' + parseFloat(targetPrice).toFixed(2), 'success');
+      showToast('Alert set: ' + symbol + ' ' + condition + ' ' + fmtPrice(targetPrice), 'success');
       loadAlerts();
-    }
+    } else { showToast(data.error || 'Failed to create alert', 'error'); }
   } catch(e) { showToast('Failed to create alert', 'error'); }
 }
 
@@ -455,14 +437,15 @@ async function loadAlerts() {
 
 function renderAlerts(alerts) {
   var c = document.getElementById('alertsList');
-  if (!alerts || !alerts.length) { c.innerHTML = '<p class="md-body-medium text-center py-3" style="color:var(--md-on-sv);">No alerts set</p>'; return; }
+  if (!alerts || !alerts.length) { c.innerHTML = '<p class="center dim" style="padding:12px 0;font-size:0.8rem">No alerts set</p>'; return; }
   c.innerHTML = alerts.map(function(a) {
     var icon = a.condition === 'above' ? 'trending_up' : 'trending_down';
-    var iconColor = a.condition === 'above' ? '#86efac' : '#fca5a5';
-    return '<div class="m3-stat-row' + (a.triggered ? ' opacity-50' : '') + '">' +
-      '<div class="flex items-center gap-2"><span class="mi mi-sm" style="color:' + iconColor + ';">' + icon + '</span><span class="md-body-medium">' + a.symbol + ' ' + a.condition + ' $' + a.targetPrice.toFixed(2) + '</span>' +
-      (a.triggered ? '<span class="mi mi-xs" style="color:#fcd34d;">check_circle</span>' : '') + '</div>' +
-      '<button onclick="deleteAlert(\'' + a.id + '\')" style="color:#fca5a5;cursor:pointer;background:none;border:none;"><span class="mi mi-sm">close</span></button></div>';
+    var iconColor = a.condition === 'above' ? COLORS.up : COLORS.down;
+    return '<div class="row" style="' + (a.triggered ? 'opacity:0.5' : '') + '">' +
+      '<div class="flex items-c gap-2"><span class="mi mi-sm" style="color:' + iconColor + '">' + icon + '</span>' +
+      '<span style="font-size:0.82rem">' + esc(a.symbol) + ' ' + esc(a.condition) + ' ' + fmtPrice(a.targetPrice) + '</span>' +
+      (a.triggered ? '<span class="mi mi-xs warn">check_circle</span>' : '') + '</div>' +
+      '<button onclick="deleteAlert(\'' + a.id + '\')" style="color:var(--down);cursor:pointer;background:none;border:none"><span class="mi mi-sm">close</span></button></div>';
   }).join('');
 }
 
@@ -475,12 +458,12 @@ async function checkAlerts() {
   try {
     var response = await fetch('/api/alerts/check', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionId: sessionId, prices: currentPrices })
+      body: JSON.stringify({ sessionId: sessionId })
     });
     var data = await response.json();
     if (data.success && data.triggered.length > 0) {
       data.triggered.forEach(function(a) {
-        var msg = '🚨 ' + a.symbol + ' ' + a.condition + ' $' + a.targetPrice + ' (now $' + a.currentPrice.toFixed(2) + ')';
+        var msg = a.symbol + ' ' + a.condition + ' ' + fmtPrice(a.targetPrice) + ' (now ' + fmtPrice(a.currentPrice) + ')';
         showToast(msg, 'alert', 8000);
         playAlertSound();
         sendBrowserNotification('Price Alert!', msg);
@@ -498,22 +481,24 @@ async function loadNews() {
     var data = await response.json();
     if (data.success && data.news.length > 0) {
       c.innerHTML = data.news.map(function(item) {
-        var ic = item.impact === 'High' ? 'news-impact-high' : item.impact === 'Medium' ? 'news-impact-medium' : 'news-impact-low';
-        var dotColor = item.impact === 'High' ? '#fca5a5' : item.impact === 'Medium' ? '#fcd34d' : '#86efac';
-        var dot = '<span class="mi mi-xs" style="color:' + dotColor + ';">circle</span>';
-        return '<div class="m3-stat-row"><div style="flex:1;min-width:0;">' +
-          '<div class="flex items-center gap-2" style="margin-bottom:2px;"><span class="text-xs">' + dot + '</span><span class="md-label-medium ' + ic + '">' + (item.impact || 'Low') + '</span><span class="md-label-small" style="color:var(--md-on-sv);">' + (item.country || '') + '</span></div>' +
-          '<p class="md-body-medium" style="color:var(--md-on-surface);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + item.title + '</p>' +
-          '<div class="flex gap-3" style="margin-top:4px;"><span class="md-label-small" style="color:var(--md-on-sv);">' + (item.date || '') + ' ' + (item.time || '') + '</span>' +
-          (item.forecast ? '<span class="md-label-small" style="color:var(--md-on-sv);">F:' + item.forecast + '</span>' : '') +
-          (item.previous ? '<span class="md-label-small" style="color:var(--md-on-sv);">P:' + item.previous + '</span>' : '') +
-          (item.actual ? '<span class="md-label-small" style="color:var(--md-primary);">A:' + item.actual + '</span>' : '') +
+        var dotColor = item.impact === 'High' ? COLORS.down : item.impact === 'Medium' ? COLORS.warn : COLORS.up;
+        return '<div class="row"><div style="flex:1;min-width:0">' +
+          '<div class="flex items-c gap-2" style="margin-bottom:3px">' +
+          '<span class="mi mi-xs" style="color:' + dotColor + '">circle</span>' +
+          '<span style="font-size:0.68rem;font-weight:700;color:' + dotColor + '">' + esc(item.impact || 'Low') + '</span>' +
+          '<span class="dim" style="font-size:0.66rem">' + esc(item.country || '') + '</span></div>' +
+          '<p style="font-size:0.8rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(item.title) + '</p>' +
+          '<div class="flex gap-3" style="margin-top:3px">' +
+          '<span class="dim" style="font-size:0.64rem">' + esc((item.date || '') + ' ' + (item.time || '')) + '</span>' +
+          (item.forecast ? '<span class="dim" style="font-size:0.64rem">F: ' + esc(item.forecast) + '</span>' : '') +
+          (item.previous ? '<span class="dim" style="font-size:0.64rem">P: ' + esc(item.previous) + '</span>' : '') +
+          (item.actual ? '<span style="font-size:0.64rem;color:var(--accent)">A: ' + esc(item.actual) + '</span>' : '') +
           '</div></div></div>';
       }).join('');
     } else {
-      c.innerHTML = '<p class="md-body-medium text-center py-3" style="color:var(--md-on-sv);">No news available</p>';
+      c.innerHTML = '<p class="center dim" style="padding:12px 0;font-size:0.8rem">No news available</p>';
     }
-  } catch(e) { c.innerHTML = '<p class="md-body-medium text-center py-3" style="color:var(--md-tertiary);">Failed to load news</p>'; }
+  } catch(e) { c.innerHTML = '<p class="center down" style="padding:12px 0;font-size:0.8rem">Failed to load news</p>'; }
 }
 
 // ========== Accuracy Tracker ==========
@@ -530,8 +515,9 @@ function updateAccuracy() {
   }).length;
   var pct = Math.round((correct / valid.length) * 100);
   document.getElementById('accuracyPercent').textContent = pct + '%';
-  document.getElementById('accuracyBar').style.width = pct + '%';
-  document.getElementById('accuracyBar').style.backgroundColor = pct >= 60 ? '#86efac' : pct >= 40 ? '#fcd34d' : '#fca5a5';
+  var bar = document.getElementById('accuracyBar');
+  bar.style.width = pct + '%';
+  bar.style.background = pct >= 60 ? COLORS.up : pct >= 40 ? COLORS.warn : COLORS.down;
   document.getElementById('accuracyCount').textContent = valid.length + ' tracked';
 }
 
@@ -577,27 +563,28 @@ function loadPredictionHistory() {
 function updateHistoryDisplay() {
   var c = document.getElementById('historyContainer');
   if (!predictionHistory.length) {
-    c.innerHTML = '<div class="col-span-full text-center py-8" style="color:var(--md-on-sv);">No predictions yet</div>';
+    c.innerHTML = '<div class="center dim" style="padding:30px 0;font-size:0.82rem;grid-column:1/-1">No predictions yet</div>';
     updateStats(); return;
   }
   c.innerHTML = predictionHistory.slice(0, 12).map(function(entry) {
     var time = new Date(entry.timestamp).toLocaleTimeString();
     var change = ((entry.predicted - entry.currentPrice) / entry.currentPrice * 100).toFixed(2);
-    var sb = entry.signal === 'BUY' ? 'rgba(134,239,172,0.2)' : entry.signal === 'SELL' ? 'rgba(252,165,165,0.2)' : 'rgba(253,224,71,0.2)';
-    var sc = entry.signal === 'BUY' ? '#86efac' : entry.signal === 'SELL' ? '#fca5a5' : '#fde047';
-    var src = entry.dataSource === 'live' ? '<span style="color:#86efac;font-size:0.7rem;">● Live</span>' : '<span style="color:#fca5a5;font-size:0.7rem;">● Mock</span>';
+    var sc = entry.signal === 'BUY' ? COLORS.up : entry.signal === 'SELL' ? COLORS.down : COLORS.warn;
+    var border = entry.signal === 'BUY' ? 'rgba(52,229,155,0.3)' : entry.signal === 'SELL' ? 'rgba(255,107,129,0.3)' : 'rgba(255,209,102,0.3)';
+    var src = entry.dataSource === 'live' ? '<span style="color:var(--up);font-size:0.66rem">● Live</span>' : '<span style="color:var(--down);font-size:0.66rem">● Offline</span>';
     var acc = '';
     if (entry.actualPrice !== undefined) {
       var correct = (entry.predicted > entry.currentPrice) === (entry.actualPrice > entry.currentPrice);
-      acc = '<div class="flex justify-between"><span style="color:var(--md-on-sv);">Result:</span><span style="color:' + (correct ? '#86efac' : '#fca5a5') + ';">' + (correct ? '✓ Correct' : '✗ Wrong') + '</span></div>';
+      acc = '<div class="flex between" style="margin-top:3px"><span class="dim">Result</span><span style="color:' + (correct ? COLORS.up : COLORS.down) + ';font-weight:700">' + (correct ? '✓ Correct' : '✗ Wrong') + '</span></div>';
     }
-    return '<div class="rounded-2xl p-4" style="border:1px solid ' + sb + ';background:var(--md-sc);">' +
-      '<div class="flex justify-between items-start mb-2"><span style="font-weight:700;color:' + sc + ';">' + entry.signal + '</span><div style="text-align:right;"><div style="font-size:0.7rem;color:var(--md-on-sv);">' + time + '</div>' + src + '</div></div>' +
-      '<div style="font-size:0.7rem;color:var(--md-on-sv);margin-bottom:6px;">' + entry.asset + ' · ' + entry.model + '</div>' +
-      '<div style="font-size:0.75rem;">' +
-      '<div class="flex justify-between"><span style="color:var(--md-on-sv);">Price:</span><span>$' + entry.currentPrice.toFixed(2) + '</span></div>' +
-      '<div class="flex justify-between"><span style="color:var(--md-on-sv);">Predicted:</span><span>$' + entry.predicted.toFixed(2) + '</span></div>' +
-      '<div class="flex justify-between"><span style="color:var(--md-on-sv);">Change:</span><span style="font-weight:600;color:' + (change > 0 ? '#86efac' : '#fca5a5') + ';">' + (change > 0 ? '+' : '') + change + '%</span></div>' +
+    return '<div style="border:1px solid ' + border + ';border-radius:14px;padding:14px;background:var(--glass)">' +
+      '<div class="flex between items-c" style="margin-bottom:6px"><span style="font-weight:800;color:' + sc + '">' + entry.signal + '</span>' +
+      '<div style="text-align:right"><div class="dim" style="font-size:0.64rem">' + time + '</div>' + src + '</div></div>' +
+      '<div class="dim" style="font-size:0.66rem;margin-bottom:6px">' + entry.asset + ' · ' + entry.model + '</div>' +
+      '<div style="font-size:0.74rem">' +
+      '<div class="flex between"><span class="dim">Price</span><span>' + fmtPrice(entry.currentPrice) + '</span></div>' +
+      '<div class="flex between"><span class="dim">Predicted</span><span>' + fmtPrice(entry.predicted) + '</span></div>' +
+      '<div class="flex between"><span class="dim">Change</span><span style="font-weight:700;color:' + (change > 0 ? COLORS.up : COLORS.down) + '">' + (change > 0 ? '+' : '') + change + '%</span></div>' +
       acc + '</div></div>';
   }).join('');
   updateStats();
@@ -626,25 +613,22 @@ async function loadMultiTimeframe() {
     var response = await fetch('/api/analysis/multi-timeframe/' + currentAsset);
     var data = await response.json();
     if (!data.success) return;
-    var grid = document.getElementById('mtfGrid');
     var tfs = data.timeframes;
     var html = '';
-    var keys = ['daily', 'h4', 'h1', 'm15'];
-    keys.forEach(function(key) {
+    ['daily', 'h4', 'h1', 'm15'].forEach(function(key) {
       var tf = tfs[key];
-      var sc = tf.signal === 'BUY' ? '#86efac' : tf.signal === 'SELL' ? '#fca5a5' : '#fde047';
-      var confPct = Math.round(tf.confidence * 100);
-      html += '<div class="m3-indicator-card">' +
-        '<p class="md-label-medium mb-1" style="color:var(--md-on-sv);">' + tf.label + '</p>' +
-        '<div class="text-xl font-bold mb-1" style="color:' + sc + ';">' + tf.signal + '</div>' +
-        (tf.isFallback ? '<p class="md-label-small mb-1" style="color:#fcd34d;">⚠ Fallback data</p>' : '') +
-        '<div class="m3-progress-track mb-1" style="height:4px;"><div class="m3-progress-fill" style="width:' + confPct + '%;background:' + sc + ';height:100%;"></div></div>' +
-        '<p class="md-label-small" style="color:var(--md-on-sv);">' + confPct + '% · RSI ' + tf.rsi.toFixed(1) + '</p>' +
-        '</div>';
+      if (!tf) return;
+      var sc = tf.signal === 'BUY' ? COLORS.up : tf.signal === 'SELL' ? COLORS.down : COLORS.warn;
+      var confPct = Math.round((tf.confidence || 0) * 100);
+      html += '<div class="ind-card"><div class="il">' + tf.label + '</div>' +
+        '<div style="font-size:1.2rem;font-weight:800;color:' + sc + ';margin-bottom:6px">' + tf.signal + '</div>' +
+        (tf.isFallback ? '<div class="warn" style="font-size:0.62rem;margin-bottom:4px">⚠ Fallback data</div>' : '') +
+        '<div class="mini-track" style="height:4px;margin-bottom:6px"><div class="mini-fill" style="width:' + confPct + '%;background:' + sc + '"></div></div>' +
+        '<div class="dim" style="font-size:0.66rem">' + confPct + '%' + (tf.rsi ? ' · RSI ' + tf.rsi.toFixed(1) : '') + '</div></div>';
     });
-    grid.innerHTML = html;
-    var cc = data.consensus === 'BUY' ? '#86efac' : data.consensus === 'SELL' ? '#fca5a5' : '#fde047';
-    document.getElementById('mtfConsensus').innerHTML = '<span style="color:' + cc + ';">' + data.consensus + '</span>';
+    document.getElementById('mtfGrid').innerHTML = html;
+    var cc = data.consensus === 'BUY' ? COLORS.up : data.consensus === 'SELL' ? COLORS.down : COLORS.warn;
+    document.getElementById('mtfConsensus').innerHTML = '<span style="color:' + cc + '">' + data.consensus + '</span>';
     document.getElementById('mtfAgreement').textContent = data.agreement + '% agreement';
   } catch(e) { console.error('MTF error:', e); }
 }
@@ -655,26 +639,23 @@ async function loadCorrelation() {
     var response = await fetch('/api/analysis/correlation');
     var data = await response.json();
     if (!data.success) return;
-    var pairs = data.pairs;
-    var matrix = data.matrix;
-    var html = '<table style="width:100%;border-collapse:collapse;font-size:0.75rem;">';
-    html += '<tr><th style="padding:6px;"></th>';
-    pairs.forEach(function(p) {
-      html += '<th style="padding:6px;color:var(--md-on-sv);font-weight:500;">' + p.slice(0,3) + '<br>' + p.slice(3) + '</th>';
-    });
+    var pairs = data.pairs, matrix = data.matrix;
+    var html = '<table class="tbl"><tr><th></th>';
+    pairs.forEach(function(p) { html += '<th class="center">' + p.slice(0,3) + '/' + p.slice(3) + '</th>'; });
     html += '</tr>';
     for (var i = 0; i < pairs.length; i++) {
-      html += '<tr><td style="padding:6px;font-weight:600;color:var(--md-on-surface);">' + pairs[i].slice(0,3) + '/' + pairs[i].slice(3) + '</td>';
+      html += '<tr><td style="font-weight:600">' + pairs[i].slice(0,3) + '/' + pairs[i].slice(3) + '</td>';
       for (var j = 0; j < pairs.length; j++) {
         var val = matrix[i][j];
-        var color = val > 0.5 ? '#86efac' : val < -0.5 ? '#fca5a5' : val > 0.2 ? 'rgba(134,239,172,0.5)' : val < -0.2 ? 'rgba(252,165,165,0.5)' : 'var(--md-on-sv)';
-        var bg = i === j ? 'var(--md-sch)' : 'transparent';
-        html += '<td style="padding:6px;text-align:center;color:' + color + ';background:' + bg + ';border-radius:4px;font-weight:' + (Math.abs(val) > 0.7 ? '700' : '400') + ';">' + (i === j ? '1.00' : val.toFixed(2)) + '</td>';
+        var color = (val === null) ? COLORS.dim : val > 0.5 ? COLORS.up : val < -0.5 ? COLORS.down : val > 0.2 ? 'rgba(52,229,155,0.7)' : val < -0.2 ? 'rgba(255,107,129,0.7)' : COLORS.dim;
+        var bg = i === j ? 'rgba(255,255,255,0.05)' : 'transparent';
+        html += '<td class="center" style="color:' + color + ';background:' + bg + ';font-weight:' + (val !== null && Math.abs(val) > 0.7 ? '700' : '400') + '">' + (val === null ? '–' : val.toFixed(2)) + '</td>';
       }
       html += '</tr>';
     }
     html += '</table>';
     document.getElementById('corrMatrix').innerHTML = html;
+    update3DCorrelation(pairs, matrix);
   } catch(e) { console.error('Correlation error:', e); }
 }
 
@@ -684,24 +665,19 @@ function calculateRisk() {
   var riskPct = parseFloat(document.getElementById('riskPercent').value) || 2;
   var stopPips = parseFloat(document.getElementById('riskStopPips').value) || 30;
   var pair = document.getElementById('riskPair').value;
-
   var riskAmount = balance * (riskPct / 100);
-  // Pip value depends on pair - for most USD pairs, 1 standard lot = $10/pip
-  // For JPY pairs, pip value is different
-  var pipValue = 10; // $ per pip per standard lot
-  if (pair === 'USDJPY' || pair === 'EURJPY') pipValue = 100 / 150; // approximate for JPY pairs
-  if (pair === 'XAUUSD') pipValue = 1; // Gold: 1 pip = $0.01, lot = 100oz, so $1/pip
-
+  var pipValue = 10;
+  if (pair === 'USDJPY' || pair === 'EURJPY') pipValue = 100 / 150;
+  if (pair === 'XAUUSD') pipValue = 1;
   var lots = riskAmount / (stopPips * pipValue);
   var units = Math.round(lots * 100000);
-  var reward = riskAmount * 2; // 1:2 risk reward
-
+  var reward = riskAmount * 2;
   document.getElementById('riskResults').style.display = 'block';
   document.getElementById('riskAmount').textContent = '$' + riskAmount.toFixed(2);
   document.getElementById('riskLots').textContent = lots.toFixed(2) + ' lots';
   document.getElementById('riskUnits').textContent = units.toLocaleString();
   document.getElementById('riskReward').textContent = '$' + reward.toFixed(2);
-  showToast('Risk calculated: ' + lots.toFixed(2) + ' lots', 'success');
+  showToast('Position size: ' + lots.toFixed(2) + ' lots', 'success');
 }
 
 // ========== Trade Journal ==========
@@ -721,38 +697,20 @@ function addJournalEntry() {
   var exit = parseFloat(document.getElementById('journalExit').value);
   var lots = parseFloat(document.getElementById('journalLots').value) || 0.1;
   var notes = document.getElementById('journalNotes').value;
-
   if (!entry || !exit) { showToast('Enter both entry and exit prices', 'warning'); return; }
 
   var pipDiff;
-  if (pair === 'USDJPY' || pair === 'EURJPY') {
-    pipDiff = (exit - entry) * 100;
-  } else if (pair === 'XAUUSD') {
-    pipDiff = (exit - entry) * 10;
-  } else {
-    pipDiff = (exit - entry) * 10000;
-  }
+  if (pair === 'USDJPY' || pair === 'EURJPY') pipDiff = (exit - entry) * 100;
+  else if (pair === 'XAUUSD') pipDiff = (exit - entry) * 10;
+  else pipDiff = (exit - entry) * 10000;
   if (action === 'SELL') pipDiff = -pipDiff;
 
   var pipValue = 10;
   if (pair === 'USDJPY' || pair === 'EURJPY') pipValue = 100 / 150;
   if (pair === 'XAUUSD') pipValue = 1;
-
   var pnl = pipDiff * lots * pipValue;
 
-  tradeJournal.unshift({
-    id: Date.now(),
-    date: new Date().toISOString(),
-    pair: pair,
-    action: action,
-    entry: entry,
-    exit: exit,
-    lots: lots,
-    pips: pipDiff,
-    pnl: pnl,
-    notes: notes
-  });
-
+  tradeJournal.unshift({ id: Date.now(), date: new Date().toISOString(), pair: pair, action: action, entry: entry, exit: exit, lots: lots, pips: pipDiff, pnl: pnl, notes: notes });
   try { localStorage.setItem('tradeJournal', JSON.stringify(tradeJournal)); } catch(e) {}
   document.getElementById('journalEntry').value = '';
   document.getElementById('journalExit').value = '';
@@ -765,7 +723,7 @@ function renderJournal() {
   var list = document.getElementById('journalList');
   var stats = document.getElementById('journalStats');
   if (!tradeJournal.length) {
-    list.innerHTML = '<p class="md-body-medium text-center py-3" style="color:var(--md-on-sv);">No trades logged</p>';
+    list.innerHTML = '<p class="center dim" style="padding:12px 0;font-size:0.8rem">No trades logged</p>';
     stats.style.display = 'none';
     return;
   }
@@ -774,27 +732,23 @@ function renderJournal() {
   var wins = tradeJournal.filter(function(t) { return t.pnl > 0; }).length;
   var winRate = Math.round((wins / tradeJournal.length) * 100);
   document.getElementById('journalPnl').textContent = (totalPnl >= 0 ? '+$' : '-$') + Math.abs(totalPnl).toFixed(2);
-  document.getElementById('journalPnl').style.color = totalPnl >= 0 ? '#86efac' : '#fca5a5';
+  document.getElementById('journalPnl').style.color = totalPnl >= 0 ? COLORS.up : COLORS.down;
   document.getElementById('journalWinRate').textContent = winRate + '%';
-  document.getElementById('journalWinRate').style.color = winRate >= 50 ? '#86efac' : '#fca5a5';
+  document.getElementById('journalWinRate').style.color = winRate >= 50 ? COLORS.up : COLORS.down;
   document.getElementById('journalCount').textContent = tradeJournal.length;
 
   list.innerHTML = tradeJournal.slice(0, 20).map(function(t) {
     var d = new Date(t.date);
     var dateStr = d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
-    var ac = t.action === 'BUY' ? '#86efac' : '#fca5a5';
-    var pc = t.pnl >= 0 ? '#86efac' : '#fca5a5';
-    return '<div class="m3-stat-row" style="flex-wrap:wrap;gap:4px;">' +
-      '<div class="flex items-center gap-2" style="flex:1;min-width:120px;">' +
-      '<span class="md-label-medium" style="color:' + ac + ';">' + t.action + '</span>' +
-      '<span class="md-body-medium">' + t.pair + '</span>' +
-      '</div>' +
-      '<div style="text-align:right;">' +
-      '<span class="md-label-large" style="color:' + pc + ';">' + (t.pnl >= 0 ? '+' : '') + '$' + t.pnl.toFixed(2) + '</span>' +
-      '<span class="md-label-small block" style="color:var(--md-on-sv);">' + t.pips.toFixed(1) + ' pips · ' + dateStr + '</span>' +
-      '</div>' +
-      '<button onclick="deleteJournalEntry(' + t.id + ')" style="color:#fca5a5;cursor:pointer;background:none;border:none;"><span class="mi mi-xs">close</span></button>' +
-      '</div>';
+    var ac = t.action === 'BUY' ? COLORS.up : COLORS.down;
+    var pc = t.pnl >= 0 ? COLORS.up : COLORS.down;
+    return '<div class="row" style="flex-wrap:wrap;gap:4px">' +
+      '<div class="flex items-c gap-2" style="flex:1;min-width:110px">' +
+      '<span style="font-weight:800;color:' + ac + '">' + t.action + '</span>' +
+      '<span style="font-size:0.82rem">' + t.pair + '</span></div>' +
+      '<div style="text-align:right"><span style="font-weight:700;color:' + pc + '">' + (t.pnl >= 0 ? '+' : '') + '$' + t.pnl.toFixed(2) + '</span>' +
+      '<span class="dim" style="display:block;font-size:0.62rem">' + t.pips.toFixed(1) + ' pips · ' + dateStr + '</span></div>' +
+      '<button onclick="deleteJournalEntry(' + t.id + ')" style="color:var(--down);cursor:pointer;background:none;border:none"><span class="mi mi-xs">close</span></button></div>';
   }).join('');
 }
 
@@ -811,4 +765,414 @@ function clearJournal() {
     renderJournal();
     showToast('Journal cleared', 'info');
   }
+}
+
+// ================= 3D VISUALISATION (Three.js) =================
+// Three independent scenes: hero particle orb, price surface, gauge dials,
+// and a correlation landscape. Each is lazily created and guarded so the
+// dashboard still works if WebGL/Three is unavailable.
+
+var THREE_OK = typeof THREE !== 'undefined';
+var scenes = {};
+
+function palette() {
+  return {
+    up: getComputedStyle(document.documentElement).getPropertyValue('--up').trim() || '#34e59b',
+    down: getComputedStyle(document.documentElement).getPropertyValue('--down').trim() || '#ff6b81',
+    accent: getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#5b8cff',
+    accent2: getComputedStyle(document.documentElement).getPropertyValue('--accent2').trim() || '#22d3ee',
+    warn: getComputedStyle(document.documentElement).getPropertyValue('--warn').trim() || '#ffd166'
+  };
+}
+
+function makeRenderer(canvas) {
+  var r = new THREE.WebGLRenderer({ canvas: canvas, alpha: true, antialias: true });
+  r.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  return r;
+}
+
+function sizeRenderer(renderer, canvas) {
+  var w = canvas.clientWidth || canvas.parentElement && canvas.parentElement.clientWidth || 600;
+  var h = canvas.clientHeight || canvas.parentElement && canvas.parentElement.clientHeight || 400;
+  renderer.setSize(w, h, false);
+}
+
+function init3D() {
+  if (!THREE_OK) return;
+  // Each scene is isolated: a failure in one (bad WebGL context, zero-size
+  // canvas, etc.) must not abort the others or take down the dashboard.
+  [['hero', initHero3D], ['price', initPriceScene], ['gauge', initGaugeScene], ['corr', initCorrScene]]
+    .forEach(function(pair) {
+      try { pair[1](); } catch (e) { console.warn('3D scene "' + pair[0] + '" failed to init:', e); }
+    });
+  window.addEventListener('resize', onResize);
+}
+
+function onResize() {
+  if (!THREE_OK) return;
+  ['hero', 'price', 'gauge', 'corr'].forEach(function(k) {
+    var s = scenes[k];
+    if (s && s.renderer && s.canvas) {
+      sizeRenderer(s.renderer, s.canvas);
+      s.camera.aspect = (s.canvas.clientWidth || 600) / (s.canvas.clientHeight || 400);
+      s.camera.updateProjectionMatrix();
+    }
+  });
+}
+
+function animate(k) {
+  var s = scenes[k];
+  if (!s) return;
+  requestAnimationFrame(function() { animate(k); });
+  if (s.update) {
+    try { s.update(); } catch (e) { console.warn('3D scene "' + k + '" update failed:', e); s.update = null; }
+  }
+  s.renderer.render(s.scene, s.camera);
+}
+
+// ---- Hero: rotating particle globe / price wave ----
+function initHero3D() {
+  var canvas = document.getElementById('hero3d');
+  if (!canvas) return;
+  var renderer = makeRenderer(canvas);
+  var scene = new THREE.Scene();
+  var camera = new THREE.PerspectiveCamera(55, 1, 0.1, 100);
+  camera.position.set(0, 1.4, 6.2);
+  camera.lookAt(0, 0, 0);
+
+  var pal = palette();
+  // Wave grid of points forming a 3D price surface
+  var cols = 40, rows = 26;
+  var geo = new THREE.BufferGeometry();
+  var positions = new Float32Array(cols * rows * 3);
+  var colors = new Float32Array(cols * rows * 3);
+  var cA = new THREE.Color(pal.accent), cB = new THREE.Color(pal.accent2);
+  var idx = 0;
+  for (var x = 0; x < cols; x++) {
+    for (var z = 0; z < rows; z++) {
+      positions[idx * 3] = (x - cols / 2) * 0.16;
+      positions[idx * 3 + 1] = 0;
+      positions[idx * 3 + 2] = (z - rows / 2) * 0.16;
+      var t = x / cols;
+      var col = cA.clone().lerp(cB, t);
+      colors[idx * 3] = col.r; colors[idx * 3 + 1] = col.g; colors[idx * 3 + 2] = col.b;
+      idx++;
+    }
+  }
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  var mat = new THREE.PointsMaterial({ size: 0.05, vertexColors: true, transparent: true, opacity: 0.9 });
+  var points = new THREE.Points(geo, mat);
+  scene.add(points);
+
+  scenes.hero = {
+    renderer: renderer, scene: scene, camera: camera, canvas: canvas,
+    update: function() {
+      var t = performance.now() * 0.0008;
+      var pos = geo.attributes.position.array;
+      for (var x = 0; x < cols; x++) {
+        for (var z = 0; z < rows; z++) {
+          var i = (x * rows + z) * 3;
+          pos[i + 1] = Math.sin(x * 0.35 + t * 2) * 0.22 + Math.cos(z * 0.4 + t * 1.4) * 0.22;
+        }
+      }
+      geo.attributes.position.needsUpdate = true;
+      scene.rotation.y = Math.sin(t * 0.4) * 0.25;
+      camera.lookAt(0, 0, 0);
+    }
+  };
+  sizeRenderer(renderer, canvas);
+  camera.aspect = canvas.clientWidth / canvas.clientHeight;
+  camera.updateProjectionMatrix();
+  animate('hero');
+}
+
+// ---- Price history + forecast scene ----
+function initPriceScene() {
+  var canvas = document.getElementById('price3d');
+  if (!canvas) return;
+  var renderer = makeRenderer(canvas);
+  var scene = new THREE.Scene();
+  var camera = new THREE.PerspectiveCamera(50, 1, 0.1, 500);
+  camera.position.set(0, 34, 46);
+  camera.lookAt(0, 0, 0);
+
+  scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+  var dir = new THREE.DirectionalLight(0xffffff, 1.1);
+  dir.position.set(10, 40, 20);
+  scene.add(dir);
+  var grid = new THREE.GridHelper(60, 30, 0x2a3a55, 0x16233a);
+  grid.position.y = -12;
+  scene.add(grid);
+
+  var state = { group: new THREE.Group(), built: false, needsRebuild: false, raw: null };
+  scene.add(state.group);
+
+  // Simple orbit controls (mouse drag)
+  var drag = false, px = 0, py = 0, theta = 0.6, phi = 0.95, radius = 56;
+  canvas.addEventListener('mousedown', function(e) { drag = true; px = e.clientX; py = e.clientY; });
+  window.addEventListener('mouseup', function() { drag = false; });
+  window.addEventListener('mousemove', function(e) {
+    if (!drag) return;
+    theta -= (e.clientX - px) * 0.006;
+    phi = Math.max(0.25, Math.min(1.35, phi - (e.clientY - py) * 0.005));
+    px = e.clientX; py = e.clientY;
+  });
+  canvas.addEventListener('wheel', function(e) {
+    e.preventDefault();
+    radius = Math.max(28, Math.min(110, radius + e.deltaY * 0.04));
+  }, { passive: false });
+
+  scenes.price = {
+    renderer: renderer, scene: scene, camera: camera, canvas: canvas, state: state,
+    update: function() {
+      if (state.needsRebuild && state.raw) { buildPriceGeometry(state); }
+      camera.position.x = radius * Math.sin(theta) * Math.cos(phi);
+      camera.position.z = radius * Math.cos(theta) * Math.cos(phi);
+      camera.position.y = radius * Math.sin(phi);
+      camera.lookAt(0, 0, 0);
+      state.group.rotation.y += 0.0;
+    }
+  };
+  sizeRenderer(renderer, canvas);
+  camera.aspect = canvas.clientWidth / canvas.clientHeight;
+  camera.updateProjectionMatrix();
+  animate('price');
+}
+
+function buildPriceGeometry(state) {
+  var raw = state.raw;
+  var pal = palette();
+  while (state.group.children.length) {
+    var c = state.group.children.pop();
+    if (c.geometry) c.geometry.dispose();
+    if (c.material) c.material.dispose();
+  }
+  state.needsRebuild = false;
+  if (!raw || raw.history.length < 2) return;
+
+  // Normalise price into [-10, 10] on Y; index along X; Z = 0 centre.
+  var all = raw.history.concat(raw.forecast);
+  var min = Math.min.apply(null, all), max = Math.max.apply(null, all);
+  var span = (max - min) || 1;
+  function yOf(p) { return ((p - min) / span) * 20 - 10; }
+
+  var n = raw.history.length;
+  var histPts = [], fcPts = [];
+  for (var i = 0; i < n; i++) {
+    histPts.push(new THREE.Vector3((i - n / 2) * 0.55, yOf(raw.history[i]), 0));
+  }
+  var last = histPts[histPts.length - 1];
+  for (var j = 0; j < raw.forecast.length; j++) {
+    fcPts.push(new THREE.Vector3(last.x + (j + 1) * 0.55, yOf(raw.forecast[j]), 0));
+  }
+
+  var histGeo = new THREE.BufferGeometry().setFromPoints(histPts);
+  var histLine = new THREE.Line(histGeo, new THREE.LineBasicMaterial({ color: new THREE.Color(pal.accent), linewidth: 2 }));
+  state.group.add(histLine);
+
+  // Area fill under history (thin vertical ribbons)
+  var ribbonGeo = new THREE.BufferGeometry();
+  var rPos = [];
+  for (var k = 0; k < histPts.length; k++) {
+    rPos.push(histPts[k].x, -10, 0, histPts[k].x, histPts[k].y, 0);
+  }
+  ribbonGeo.setAttribute('position', new THREE.Float32BufferAttribute(rPos, 3));
+  var ribbon = new THREE.LineSegments(ribbonGeo, new THREE.LineBasicMaterial({ color: new THREE.Color(pal.accent), transparent: true, opacity: 0.22 }));
+  state.group.add(ribbon);
+
+  if (fcPts.length) {
+    var fcAll = [last].concat(fcPts);
+    var fcGeo = new THREE.BufferGeometry().setFromPoints(fcAll);
+    var fcLine = new THREE.Line(fcGeo, new THREE.LineDashedMaterial({ color: new THREE.Color(pal.warn), dashSize: 0.6, gapSize: 0.3 }));
+    fcLine.computeLineDistances();
+    state.group.add(fcLine);
+
+    fcPts.forEach(function(pt) {
+      var sph = new THREE.Mesh(
+        new THREE.SphereGeometry(0.28, 12, 12),
+        new THREE.MeshBasicMaterial({ color: new THREE.Color(pal.warn) })
+      );
+      sph.position.copy(pt);
+      state.group.add(sph);
+    });
+  }
+
+  // Current price marker
+  var marker = new THREE.Mesh(
+    new THREE.SphereGeometry(0.45, 16, 16),
+    new THREE.MeshBasicMaterial({ color: new THREE.Color(pal.accent2) })
+  );
+  marker.position.copy(last);
+  state.group.add(marker);
+}
+
+async function loadHistoryChart() {
+  try {
+    var res = await fetch('/api/prices/' + currentAsset + '/history?timeframe=' + currentTimeframe);
+    var data = await res.json();
+    if (!data.success || !data.data) return;
+    var history = data.data.slice(-80).map(function(d) { return d.close; });
+    if (scenes.price) {
+      scenes.price.state.raw = { history: history, forecast: lastPrediction ? lastPrediction.predictions : [] };
+      scenes.price.state.needsRebuild = true;
+    }
+  } catch(e) { console.error('History chart error:', e); }
+}
+
+function update3DPriceChart(prediction) {
+  if (!scenes.price) return;
+  var raw = scenes.price.state.raw || {};
+  scenes.price.state.raw = { history: raw.history || [], forecast: prediction.predictions || [] };
+  scenes.price.state.needsRebuild = true;
+  if (!raw.history || !raw.history.length) loadHistoryChart();
+}
+
+// ---- 3D gauges: three torus dials for RSI / ADX / Stochastic ----
+function initGaugeScene() {
+  var canvas = document.getElementById('gauges3d');
+  if (!canvas) return;
+  var renderer = makeRenderer(canvas);
+  var scene = new THREE.Scene();
+  var camera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
+  camera.position.set(0, 3.2, 9);
+  camera.lookAt(0, 0, 0);
+
+  scene.add(new THREE.AmbientLight(0xffffff, 0.9));
+  var pal = palette();
+  var dials = [];
+  var specs = [
+    { x: -3, color: pal.accent, label: 'RSI' },
+    { x: 0, color: pal.accent2, label: 'ADX' },
+    { x: 3, color: pal.up, label: 'STOCH' }
+  ];
+  specs.forEach(function(spec) {
+    var grp = new THREE.Group();
+    grp.position.x = spec.x;
+    var ring = new THREE.Mesh(
+      new THREE.TorusGeometry(1.25, 0.09, 12, 60),
+      new THREE.MeshStandardMaterial({ color: new THREE.Color(spec.color), metalness: 0.4, roughness: 0.3, emissive: new THREE.Color(spec.color), emissiveIntensity: 0.25 })
+    );
+    grp.add(ring);
+    var needleGeo = new THREE.BoxGeometry(0.08, 1.1, 0.08);
+    needleGeo.translate(0, 0.55, 0);
+    var needle = new THREE.Mesh(needleGeo, new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: new THREE.Color(spec.color), emissiveIntensity: 0.6 }));
+    grp.add(needle);
+    var hub = new THREE.Mesh(new THREE.SphereGeometry(0.16, 16, 16), new THREE.MeshStandardMaterial({ color: new THREE.Color(spec.color) }));
+    grp.add(hub);
+    scene.add(grp);
+    dials.push({ grp: grp, needle: needle, value: 50, target: 50 });
+  });
+
+  scenes.gauge = {
+    renderer: renderer, scene: scene, camera: camera, canvas: canvas, dials: dials,
+    update: function() {
+      dials.forEach(function(d) {
+        // smooth toward target
+        d.value += (d.target - d.value) * 0.12;
+        // 0..100 mapped to -135deg..135deg
+        var ang = ((d.value / 100) * 270 - 135) * Math.PI / 180;
+        d.needle.rotation.z = -ang;
+        d.grp.rotation.y = Math.sin(performance.now() * 0.0005 + d.grp.position.x) * 0.25;
+      });
+    }
+  };
+  sizeRenderer(renderer, canvas);
+  camera.aspect = canvas.clientWidth / canvas.clientHeight;
+  camera.updateProjectionMatrix();
+  animate('gauge');
+}
+
+function update3DGauges(ind) {
+  if (!scenes.gauge) return;
+  scenes.gauge.dials[0].target = Math.max(0, Math.min(100, ind.rsi));
+  scenes.gauge.dials[1].target = Math.max(0, Math.min(100, ind.adx || 0));
+  scenes.gauge.dials[2].target = Math.max(0, Math.min(100, ind.stochastic || 50));
+}
+
+// ---- 3D correlation landscape ----
+function initCorrScene() {
+  var canvas = document.getElementById('corr3d');
+  if (!canvas) return;
+  var renderer = makeRenderer(canvas);
+  var scene = new THREE.Scene();
+  var camera = new THREE.PerspectiveCamera(48, 1, 0.1, 200);
+  camera.position.set(6, 9, 12);
+  camera.lookAt(0, 1, 0);
+  scene.add(new THREE.AmbientLight(0xffffff, 0.85));
+  var dl = new THREE.DirectionalLight(0xffffff, 1);
+  dl.position.set(8, 14, 6);
+  scene.add(dl);
+
+  var state = { group: new THREE.Group(), needsRebuild: false, data: null };
+  scene.add(state.group);
+
+  var theta = 0.55, phi = 0.55, radius = 17, drag = false, px = 0, py = 0;
+  canvas.addEventListener('mousedown', function(e) { drag = true; px = e.clientX; py = e.clientY; });
+  window.addEventListener('mouseup', function() { drag = false; });
+  window.addEventListener('mousemove', function(e) {
+    if (!drag) return;
+    theta -= (e.clientX - px) * 0.008;
+    phi = Math.max(0.15, Math.min(1.3, phi - (e.clientY - py) * 0.006));
+    px = e.clientX; py = e.clientY;
+  });
+  canvas.addEventListener('wheel', function(e) { e.preventDefault(); radius = Math.max(9, Math.min(30, radius + e.deltaY * 0.02)); }, { passive: false });
+
+  scenes.corr = {
+    renderer: renderer, scene: scene, camera: camera, canvas: canvas, state: state,
+    update: function() {
+      if (state.needsRebuild) buildCorrGeometry(state);
+      camera.position.x = radius * Math.sin(theta) * Math.cos(phi);
+      camera.position.z = radius * Math.cos(theta) * Math.cos(phi);
+      camera.position.y = radius * Math.sin(phi);
+      camera.lookAt(0, 0.5, 0);
+    }
+  };
+  sizeRenderer(renderer, canvas);
+  camera.aspect = canvas.clientWidth / canvas.clientHeight;
+  camera.updateProjectionMatrix();
+  animate('corr');
+}
+
+function buildCorrGeometry(state) {
+  state.needsRebuild = false;
+  var pal = palette();
+  while (state.group.children.length) {
+    var c = state.group.children.pop();
+    if (c.geometry) c.geometry.dispose();
+    if (c.material) c.material.dispose();
+  }
+  var data = state.data;
+  if (!data) return;
+  var pairs = data.pairs, matrix = data.matrix;
+  var n = pairs.length;
+  var maxY = 3;
+  var upgrade = new THREE.Color(pal.up), downColor = new THREE.Color(pal.down);
+  for (var i = 0; i < n; i++) {
+    for (var j = 0; j < n; j++) {
+      var val = matrix[i][j];
+      if (val === null || i === j) continue;
+      var h = Math.abs(val) * maxY + 0.05;
+      var box = new THREE.Mesh(
+        new THREE.BoxGeometry(0.7, h, 0.7),
+        new THREE.MeshStandardMaterial({ color: val >= 0 ? upgrade : downColor, metalness: 0.35, roughness: 0.35, transparent: true, opacity: 0.9, emissive: (val >= 0 ? upgrade : downColor), emissiveIntensity: 0.18 })
+      );
+      box.position.set((i - n / 2) * 0.9, h / 2, (j - n / 2) * 0.9);
+      state.group.add(box);
+    }
+  }
+  var grid = new THREE.GridHelper(n * 1.1, n, 0x2a3a55, 0x16233a);
+  state.group.add(grid);
+}
+
+function update3DCorrelation(pairs, matrix) {
+  if (!scenes.corr) return;
+  scenes.corr.state.data = { pairs: pairs, matrix: matrix };
+  scenes.corr.state.needsRebuild = true;
+}
+
+function rebuild3DColors() {
+  // Recolour existing scenes on theme flip by forcing a rebuild where we can.
+  if (scenes.corr && scenes.corr.state.data) scenes.corr.state.needsRebuild = true;
+  if (scenes.price && scenes.price.state.raw) scenes.price.state.needsRebuild = true;
 }

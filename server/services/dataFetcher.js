@@ -1,4 +1,5 @@
 const axios = require('axios');
+const { getSymbolConfig } = require('../config/symbols');
 
 const TWELVE_DATA_API_KEY = process.env.TWELVE_DATA_API_KEY;
 const TWELVE_DATA_BASE_URL = 'https://api.twelvedata.com';
@@ -8,22 +9,6 @@ const GOLD_API_BASE_URL = 'https://www.goldapi.io/api';
 // Log API key availability on module load (never log actual keys)
 console.log(`[DataFetcher] TwelveData configured: ${!!TWELVE_DATA_API_KEY}`);
 console.log(`[DataFetcher] GoldAPI configured: ${!!GOLD_API_KEY}`);
-
-// Swissquote instrument mapping (free real-time, no key needed)
-const SQ_SYMBOLS = {
-  EURUSD: 'EUR/USD', GBPUSD: 'GBP/USD', USDJPY: 'USD/JPY', USDCHF: 'USD/CHF',
-  AUDUSD: 'AUD/USD', USDCAD: 'USD/CAD', NZDUSD: 'NZD/USD', XAUUSD: 'XAU/USD',
-  EURGBP: 'EUR/GBP', EURJPY: 'EUR/JPY',
-};
-
-// Frankfurter needs base/quote split — only supports fiat (not XAU)
-const FRANKFURTER_PAIRS = {
-  EURUSD: { from: 'EUR', to: 'USD' }, GBPUSD: { from: 'GBP', to: 'USD' },
-  USDJPY: { from: 'USD', to: 'JPY' }, USDCHF: { from: 'USD', to: 'CHF' },
-  AUDUSD: { from: 'AUD', to: 'USD' }, USDCAD: { from: 'USD', to: 'CAD' },
-  NZDUSD: { from: 'NZD', to: 'USD' }, EURGBP: { from: 'EUR', to: 'GBP' },
-  EURJPY: { from: 'EUR', to: 'JPY' },
-};
 
 // Cache to avoid hitting rate limits
 const priceCache = new Map();
@@ -42,10 +27,10 @@ class DataFetcher {
       return { ...cached.data, source: 'live' };
     }
 
-    const sqSymbol = SQ_SYMBOLS[symbol];
-    if (!sqSymbol) throw new Error(`Unsupported symbol: ${symbol}`);
+    const cfg = getSymbolConfig(symbol);
+    if (!cfg || !cfg.swissquote) throw new Error(`Unsupported symbol: ${symbol}`);
 
-    const [base, quote] = sqSymbol.split('/');
+    const [base, quote] = cfg.swissquote.split('/');
     console.log(`[DataFetcher] Fetching ${symbol} from Swissquote (real-time)`);
 
     const response = await axios.get(
@@ -86,7 +71,8 @@ class DataFetcher {
   // ===== FRANKFURTER (FREE historical forex data — ECB rates, no key) =====
 
   async getFrankfurterHistory(symbol) {
-    const pair = FRANKFURTER_PAIRS[symbol];
+    const cfg = getSymbolConfig(symbol);
+    const pair = cfg && cfg.frankfurter;
     if (!pair) throw new Error(`Frankfurter does not support ${symbol}`);
 
     const cacheKey = `frank_hist_${symbol}`;
@@ -159,7 +145,7 @@ class DataFetcher {
         return { ...cached.data, source: 'live' };
       }
 
-      const tdSymbol = symbol === 'XAUUSD' ? 'XAU/USD' : `${symbol.slice(0, 3)}/${symbol.slice(3)}`;
+      const tdSymbol = getSymbolConfig(symbol)?.twelveData || `${symbol.slice(0, 3)}/${symbol.slice(3)}`;
       console.log(`[DataFetcher] Fetching quote for ${tdSymbol} from TwelveData`);
 
       const response = await axios.get(`${TWELVE_DATA_BASE_URL}/quote`, {
@@ -211,7 +197,7 @@ class DataFetcher {
       return { source: 'live', data: cached.data };
     }
 
-    const tdSymbol = symbol === 'XAUUSD' ? 'XAU/USD' : `${symbol.slice(0, 3)}/${symbol.slice(3)}`;
+    const tdSymbol = getSymbolConfig(symbol)?.twelveData || `${symbol.slice(0, 3)}/${symbol.slice(3)}`;
     const intervalMap = { '5M': '5min', '15M': '15min', '1H': '1h', '4H': '4h', 'D': '1day' };
     const interval = intervalMap[timeframe] || '1day';
 
@@ -306,7 +292,7 @@ class DataFetcher {
       }
 
       // Fall back to daily data with warning
-      if (FRANKFURTER_PAIRS[symbol]) {
+      if (getSymbolConfig(symbol)?.frankfurter) {
         const daily = await this.getFrankfurterHistory(symbol);
         return {
           ...daily,
@@ -321,7 +307,7 @@ class DataFetcher {
     }
 
     // Forex daily: Frankfurter (real ECB data)
-    if (FRANKFURTER_PAIRS[symbol]) {
+    if (getSymbolConfig(symbol)?.frankfurter) {
       try {
         return await this.getFrankfurterHistory(symbol);
       } catch (err) {

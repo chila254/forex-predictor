@@ -3,6 +3,8 @@ const router = express.Router();
 const dataFetcher = require('../services/dataFetcher');
 const Validators = require('../utils/validators');
 const logger = require('../utils/logger');
+const { publicError } = require('../utils/errors');
+const { SYMBOL_LIST } = require('../config/symbols');
 
 /**
  * GET /api/prices/batch
@@ -10,7 +12,7 @@ const logger = require('../utils/logger');
  */
 router.get('/batch', async (req, res) => {
   const startTime = Date.now();
-  const symbols = ['EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'AUDUSD', 'USDCAD', 'NZDUSD', 'XAUUSD', 'EURGBP', 'EURJPY'];
+  const symbols = SYMBOL_LIST;
   
   try {
     const results = await Promise.allSettled(
@@ -81,9 +83,7 @@ router.get('/:symbol', async (req, res) => {
     
     res.status(500).json({ 
       success: false,
-      error: process.env.NODE_ENV === 'development' 
-        ? error.message 
-        : 'Failed to fetch price data. Please try again.' 
+      error: publicError(error.message) || 'Failed to fetch price data. Please try again.'
     });
   }
 });
@@ -136,9 +136,7 @@ router.get('/:symbol/history', async (req, res) => {
     
     res.status(500).json({ 
       success: false,
-      error: process.env.NODE_ENV === 'development' 
-        ? error.message 
-        : 'Failed to fetch history. Please try again.' 
+      error: publicError(error.message) || 'Failed to fetch history. Please try again.'
     });
   }
 });

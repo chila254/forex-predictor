@@ -10,6 +10,16 @@ class PredictionEngine {
       naive: this.naiveModel.bind(this),
       ensemble: this.adaptiveEnsemble.bind(this)
     };
+    // Walk-forward weights are O(n²); cache them per distinct series.
+    this._weightCache = new Map();
+    this._weightCacheMax = 64;
+  }
+
+  _seriesKey(prices) {
+    // Length + last three closes uniquely identify a refreshed series.
+    const n = prices.length;
+    const tail = prices.slice(-3).map(p => p.toFixed(6)).join(',');
+    return `${n}|${tail}`;
   }
 
   // Naive model (random walk baseline) — next price = last price
@@ -123,6 +133,21 @@ class PredictionEngine {
 
   // Walk-forward backtest to compute model weights
   computeAdaptiveWeights(prices) {
+    const cacheKey = this._seriesKey(prices);
+    const cached = this._weightCache.get(cacheKey);
+    if (cached) return cached;
+
+    const weights = this._computeWeightsUncached(prices);
+
+    if (this._weightCache.size >= this._weightCacheMax) {
+      // Evict oldest entry (Map preserves insertion order).
+      this._weightCache.delete(this._weightCache.keys().next().value);
+    }
+    this._weightCache.set(cacheKey, weights);
+    return weights;
+  }
+
+  _computeWeightsUncached(prices) {
     const testWindow = Math.min(30, Math.floor(prices.length * 0.3));
     const trainEnd = prices.length - testWindow;
 
@@ -427,17 +452,20 @@ class PredictionEngine {
     if (priceChange > 0.01) { score += 0.75; reasons.push('Model predicts up'); }
     else if (priceChange < -0.01) { score -= 0.75; reasons.push('Model predicts down'); }
 
-    // Determine action
-    const maxScore = 7.5;
+    // Determine action. MAX_SCORE is the sum of every indicator's maximum
+    // contribution (RSI 1.5, MACD 1.5, BB 1.0, EMA 1.0, Stoch 0.75, ADX
+    // amplify 0.5, S/R 0.5, model 0.75, trend-bias 0.5). Keep in sync if
+    // weights change — confidence is normalised against it.
+    const MAX_SCORE = 8.75;
     let action = 'HOLD';
     let confidence = 0;
 
     if (score >= 0.5) {
       action = 'BUY';
-      confidence = Math.min(0.3 + (score / maxScore) * 0.65, 0.95);
+      confidence = Math.min(0.3 + (score / MAX_SCORE) * 0.65, 0.95);
     } else if (score <= -0.5) {
       action = 'SELL';
-      confidence = Math.min(0.3 + (Math.abs(score) / maxScore) * 0.65, 0.95);
+      confidence = Math.min(0.3 + (Math.abs(score) / MAX_SCORE) * 0.65, 0.95);
     } else {
       action = 'HOLD';
       confidence = 0.5;

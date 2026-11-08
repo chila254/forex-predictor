@@ -4,6 +4,7 @@ const dataFetcher = require('../services/dataFetcher');
 const predictionEngine = require('../services/predictionEngine');
 const Validators = require('../utils/validators');
 const logger = require('../utils/logger');
+const { publicError } = require('../utils/errors');
 
 /**
  * POST /api/predictions/:symbol
@@ -97,9 +98,7 @@ router.post('/:symbol', async (req, res) => {
     
     res.status(500).json({ 
       success: false,
-      error: process.env.NODE_ENV === 'development' 
-        ? error.message 
-        : 'Failed to generate prediction. Please try again.' 
+      error: publicError(error.message) || 'Failed to generate prediction. Please try again.'
     });
   }
 });
@@ -115,10 +114,10 @@ router.get('/models', (req, res) => {
     success: true,
     models: ['linear', 'exponential', 'arima', 'ensemble'],
     descriptions: {
-      linear: 'Simple linear regression - best for trending markets',
-      exponential: 'Exponential trend fitting - good for accelerating moves',
-      arima: 'ARIMA(1,1,0) time series model - handles mean reversion',
-      ensemble: 'Weighted ensemble (40% linear, 30% exp, 30% ARIMA) - most robust'
+      linear: 'Linear regression on the last 30 bars - best for steady trends',
+      exponential: 'Exponential trend fitting (capped) - accelerating moves',
+      arima: 'ARIMA(1,1,0) on log returns - mean reversion',
+      ensemble: 'Adaptive walk-forward ensemble (linear/arima/exp/naive, weights re-fitted per request) - most robust'
     },
     recommendations: {
       beginner: 'ensemble',

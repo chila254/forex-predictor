@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const rateLimit = require('express-rate-limit');
 require('dotenv').config();
 
 const app = express();
@@ -12,14 +13,33 @@ const errorHandler = require('./middleware/errorHandler');
 logger.info('Forex Predictor server starting...');
 logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
 
-// Middleware - CORS
-app.use(cors());
+// Middleware - CORS. Restrict to an allowlist in production; open in dev.
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || '')
+  .split(',')
+  .map(o => o.trim())
+  .filter(Boolean);
+app.use(cors({
+  origin: process.env.NODE_ENV === 'production' && allowedOrigins.length
+    ? allowedOrigins
+    : true,
+  methods: ['GET', 'POST', 'DELETE'],
+}));
 
 // Middleware - JSON parsing
 app.use(express.json());
 
 // Middleware - Request logging
 app.use(requestLogger);
+
+// Rate limiting on the API — protects upstream provider quotas.
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: parseInt(process.env.RATE_LIMIT_PER_MIN) || 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: 'Too many requests, please slow down.' },
+});
+app.use('/api/', apiLimiter);
 
 // Serve static files from frontend/public
 app.use(express.static(path.join(__dirname, '../frontend/public')));

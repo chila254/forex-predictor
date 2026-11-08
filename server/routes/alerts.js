@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const logger = require('../utils/logger');
+const dataFetcher = require('../services/dataFetcher');
+const { isSupported } = require('../config/symbols');
 
 // In-memory alerts storage (per-session, resets on deploy)
 const alertsStore = new Map();
@@ -16,6 +18,15 @@ router.post('/', (req, res) => {
 
   if (!symbol || !condition || !targetPrice) {
     return res.status(400).json({ success: false, error: 'symbol, condition, and targetPrice are required' });
+  }
+  if (!isSupported(symbol)) {
+    return res.status(400).json({ success: false, error: 'Unsupported symbol' });
+  }
+  if (condition !== 'above' && condition !== 'below') {
+    return res.status(400).json({ success: false, error: 'condition must be "above" or "below"' });
+  }
+  if (!Number.isFinite(parseFloat(targetPrice)) || parseFloat(targetPrice) <= 0) {
+    return res.status(400).json({ success: false, error: 'targetPrice must be a positive number' });
   }
 
   const alert = {
@@ -45,14 +56,25 @@ router.delete('/:id', (req, res) => {
 });
 
 router.post('/check', async (req, res) => {
-  const { sessionId = 'default', prices } = req.body;
+  const { sessionId = 'default' } = req.body;
   const alerts = alertsStore.get(sessionId) || [];
   const triggered = [];
 
+  // Prices are fetched server-side. Client-supplied prices are ignored so a
+  // caller cannot spoof a trigger by posting arbitrary numbers.
+  const symbolsToCheck = [...new Set(alerts.filter(a => !a.triggered).map(a => a.symbol))];
+  const priceResults = await Promise.allSettled(
+    symbolsToCheck.map(s => dataFetcher.getPriceData(s))
+  );
+  const prices = {};
+  priceResults.forEach((r, i) => {
+    if (r.status === 'fulfilled' && r.value) prices[symbolsToCheck[i]] = r.value.price;
+  });
+
   for (const alert of alerts) {
     if (alert.triggered) continue;
-    const currentPrice = prices?.[alert.symbol];
-    if (!currentPrice) continue;
+    const currentPrice = prices[alert.symbol];
+    if (currentPrice === undefined) continue;
 
     if (
       (alert.condition === 'above' && currentPrice >= alert.targetPrice) ||

@@ -22,16 +22,18 @@ A sophisticated Node.js application for predicting forex and commodity prices us
 
 ### Trading Signals
 - **BUY/SELL Recommendations** with confidence levels
-- **Smart Margin Calculation**:
-  - Entry Price (current market price)
-  - Stop Loss (risk management - 2% below entry for buy)
-  - Take Profit (target - 3% above entry for buy)
+- **Regime-aware scoring** (trending vs ranging markets get different rules)
+- **ATR-based risk management**:
+  - Entry Price (current live market price)
+  - Stop Loss — ATR multiple (regime-adaptive), snapped to structure where possible
+  - Take Profit — ATR multiple target with live risk:reward
+- **Tradeability filter** — signals are suppressed when the expected move is smaller than volatility noise
 
 ### Dashboard
-- Interactive web interface with real-time updates
-- Chart visualization of historical and predicted prices
-- Technical indicator display
-- WebSocket support for live data
+- Interactive web interface with real-time polling updates
+- 3D price history & forecast visualisation (Three.js)
+- Technical indicator gauges and multi-timeframe analysis
+- Market correlation matrix
 
 ## Project Structure
 
@@ -158,13 +160,17 @@ const prediction = await response.json();
 console.log(prediction.signal); // { action: 'BUY', confidence: 0.8, ... }
 ```
 
-### Real-Time Updates with WebSocket
+### Real-Time Updates
+The dashboard updates via short-interval polling of the batch price endpoint
+(`GET /api/prices/batch`, server-side 15s cache). There is no WebSocket server;
+if you need push updates, poll on your own cadence:
+
 ```javascript
-const socket = io();
-socket.emit('subscribe', 'XAUUSD');
-socket.on('priceUpdate', (data) => {
-  console.log('New price:', data.price);
-});
+setInterval(async () => {
+  const res = await fetch('/api/prices/batch');
+  const { prices } = await res.json();
+  console.log('Prices:', prices);
+}, 15000);
 ```
 
 ## Prediction Models
@@ -187,27 +193,32 @@ socket.on('priceUpdate', (data) => {
 - Use case: Mean-reverting markets
 
 ### Ensemble (Recommended)
-- Combines all models with weights:
-  - Linear: 40%
-  - Exponential: 30%
-  - ARIMA: 30%
-- Most robust and balanced
-- Best for diverse market conditions
+- **Adaptive** weights computed per request via walk-forward backtesting
+  across linear, ARIMA, exponential, and naive (random-walk) baselines
+- Weights are normalised and cached per distinct price series
+- Most robust across regimes; naive baseline keeps it honest
 
 ## Trading Signals Logic
 
-Signals generated based on consensus of:
+Signals generated based on a weighted score of:
 
-1. **RSI** (< 30 = Buy, > 70 = Sell)
-2. **MACD** (Positive = Buy, Negative = Sell)
-3. **Bollinger Bands** (Touch lower = Buy, Touch upper = Sell)
+1. **RSI** (regime-conditioned overbought/oversold)
+2. **MACD** (histogram + crossovers)
+3. **Bollinger Bands** (mean-reversion in ranges, pullback in trends)
+4. **EMA trend** (fast vs slow)
+5. **Stochastic** (short-term momentum)
+6. **ADX** (trend strength amplifier)
+7. **Support/Resistance** proximity (structure-aware)
+8. **Model forecast direction**
 
-**Confidence** = Percentage of indicators agreeing
+**Confidence** = normalised score against the maximum possible score (8.75).
 
-**Margins**:
-- Entry: Current market price
-- Stop Loss: 2% below entry (buy) / 2% above (sell)
-- Take Profit: 3% above entry (buy) / 3% below (sell)
+**Margins** (ATR-based, regime-adaptive):
+
+- Entry: Current live market price
+- Stop Loss: 1.2–2.0 × ATR (structure-snapped where a nearby S/R level exists)
+- Take Profit: 1.5–3.0 × ATR
+- Signals are filtered out (→ HOLD) when expected move < 0.3 × ATR
 
 ## Performance Tips
 
@@ -226,11 +237,20 @@ Signals generated based on consensus of:
 
 ## Limitations
 
-- Uses mock data by default (needs API keys for real data)
+- Requires network access to upstream providers (Swissquote, Frankfurter, TwelveData); no synthetic fallback data
+- Intraday history (5M/15M/1H/4H) requires a `TWELVE_DATA_API_KEY`
 - Prediction accuracy depends on market conditions
 - Historical patterns may not repeat
 - No guarantee of profits
 - Past performance ≠ future results
+
+## Testing
+
+```bash
+npm test
+```
+
+Runs the indicator and prediction-engine unit tests with Node's built-in test runner (no extra dependencies).
 
 ## Future Enhancements
 

@@ -1,16 +1,19 @@
 /**
  * Input Validation Utilities
  */
+const { isSupported, SYMBOL_LIST } = require('../config/symbols');
+
 class Validators {
   static validateSymbol(symbol) {
-    const validSymbols = ['XAUUSD', 'EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'AUDUSD', 'USDCAD', 'NZDUSD', 'EURGBP', 'EURJPY'];
-    if (!symbol || !validSymbols.includes(symbol)) {
-      throw new Error(`Invalid symbol. Supported: ${validSymbols.join(', ')}`);
+    if (!isSupported(symbol)) {
+      throw new Error(`Invalid symbol. Supported: ${SYMBOL_LIST.join(', ')}`);
     }
     return true;
   }
 
   static validateModel(model) {
+    // 'naive' is an internal component of the adaptive ensemble, not a
+    // user-selectable model, so it is intentionally excluded here.
     const validModels = ['linear', 'exponential', 'arima', 'ensemble'];
     if (!model || !validModels.includes(model)) {
       throw new Error(`Invalid model. Supported: ${validModels.join(', ')}`);
