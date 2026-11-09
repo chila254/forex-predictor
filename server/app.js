@@ -50,6 +50,7 @@ const predictionRoutes = require('./routes/predictions');
 const newsRoutes = require('./routes/news');
 const alertRoutes = require('./routes/alerts');
 const analysisRoutes = require('./routes/analysis');
+const backtestRoutes = require('./routes/backtest');
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -62,6 +63,7 @@ app.use('/api/predictions', predictionRoutes);
 app.use('/api/news', newsRoutes);
 app.use('/api/alerts', alertRoutes);
 app.use('/api/analysis', analysisRoutes);
+app.use('/api/backtest', backtestRoutes);
 
 // Serve dashboard for root path
 app.get('/', (req, res) => {

@@ -133,6 +133,13 @@ Models: "linear", "exponential", "arima", "ensemble"
 GET /api/predictions/models
 ```
 
+### Backtest & Signal Quality
+```
+GET /api/backtest/:symbol?timeframe=D
+
+Example: GET /api/backtest/EURUSD
+```
+
 ## Usage
 
 ### Web Dashboard
@@ -211,14 +218,59 @@ Signals generated based on a weighted score of:
 7. **Support/Resistance** proximity (structure-aware)
 8. **Model forecast direction**
 
-**Confidence** = normalised score against the maximum possible score (8.75).
+**Confidence** is either:
+- **empirical** — the realized win-rate for the same `(regime, action, score-bucket)` learned from the walk-forward backtest (Laplace-smoothed, needs ≥8 samples), or
+- **formula** — the arithmetic estimate `min(0.3 + |score|/8.75 × 0.65, 0.95)` when no calibration exists yet.
+
+The UI tags each confidence with which source it came from.
+
+**Cost / session / news guards (applied to the live signal):**
+- **Spread**: the tradeability bar is raised to cover the round-trip spread, so a setup whose expected move is smaller than costs becomes HOLD. Per-symbol spreads live in `server/config/tradingCosts.js`.
+- **Session multiplier**: signals in thin sessions (Sydney 0.7, Tokyo 0.85) get a wider tradeability bar; London/NY 1.0; the London–NY overlap 1.1.
+- **News filter**: a new BUY/SELL is downgraded to HOLD when a HIGH-impact economic event for the pair's currencies is within 45 minutes.
 
 **Margins** (ATR-based, regime-adaptive):
 
 - Entry: Current live market price
 - Stop Loss: 1.2–2.0 × ATR (structure-snapped where a nearby S/R level exists)
 - Take Profit: 1.5–3.0 × ATR
-- Signals are filtered out (→ HOLD) when expected move < 0.3 × ATR
+- Signals are filtered out (→ HOLD) when expected move < 0.3 × ATR (or < spread when costs are modelled).
+
+## Backtesting & Signal Quality
+
+The engine ships a cost-aware walk-forward backtester that replays the exact
+live signal on fetched history — predicting each bar using only data up to that
+bar, then simulating the trade against its own ATR stop/target and subtracting
+the spread.
+
+```
+GET /api/backtest/:symbol?timeframe=D
+```
+
+Returns trade count, hit-rate, expectancy (pips/trade), profit factor, max
+drawdown, buy-&-hold baseline, per-indicator marginal contribution, a
+walk-forward weight recommendation, and the empirical confidence calibration.
+
+Run it offline from the terminal (add `--sweep` for weight validation):
+
+```bash
+npm run backtest -- EURUSD
+npm run backtest -- XAUUSD --sweep
+```
+
+**Weight validation** compares the hand-picked default weights against removing
+each indicator, then runs an out-of-sample coordinate search on the last 30% of
+bars. To avoid curve-fitting a ~100-bar daily series it only accepts changes that
+beat the defaults out-of-sample by more than one standard error, shrinks the
+searched vector 70/30 toward the defaults, and refuses to auto-apply when the
+out-of-sample sample is small (`low` confidence). Confident recommendations are
+applied to the live engine automatically.
+
+**Honest results on daily ECB data:** the current score-based signal is
+*unprofitable after spread* (e.g. EURUSD ≈ −23 pips/trade, profit factor ≈ 0.2
+over ~9 trades). That is the real answer to "does it predict?" — the inputs are
+real, but the forecast has no demonstrated edge, and the backtest now says so
+plainly instead of implying otherwise.
 
 ## Performance Tips
 
@@ -239,7 +291,10 @@ Signals generated based on a weighted score of:
 
 - Requires network access to upstream providers (Swissquote, Frankfurter, TwelveData); no synthetic fallback data
 - Intraday history (5M/15M/1H/4H) requires a `TWELVE_DATA_API_KEY`
-- Prediction accuracy depends on market conditions
+- **Forex history from Frankfurter/ECB is close-only** (no OHLC): backtest stop/target hits are judged on each bar's close, never intrabar, so intraday stops are under-counted
+- **Session and news filters are applied live only** — daily bars cannot be aligned to intraday events, so they are excluded from the backtest
+- The backtest uses ~90–150 daily bars per pair; weight validation is sample-limited and biased conservative on purpose
+- Prediction accuracy depends on market conditions; the daily backtest currently shows negative edge after spread
 - Historical patterns may not repeat
 - No guarantee of profits
 - Past performance ≠ future results

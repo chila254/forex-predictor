@@ -218,6 +218,35 @@
       </div>
     </section>
 
+    <!-- ===== Backtest & Signal Quality ===== -->
+    <section class="section card">
+      <div class="section-head" style="margin-bottom:14px">
+        <h3 class="card-title" style="margin:0"><span class="mi ico">science</span> Backtest &amp; Signal Quality</h3>
+        <button id="refreshBacktestBtn" class="pill"><span class="mi mi-xs">refresh</span></button>
+      </div>
+      <p class="dim" style="font-size:0.7rem;margin:-6px 0 12px">Cost-aware walk-forward replay of the live signal on daily history. If expectancy is negative, the signal has no edge after spread.</p>
+      <div id="btVerdict" class="bt-verdict bt-pending">Run a prediction to load the backtest…</div>
+      <div class="stat-grid" style="grid-template-columns:repeat(3,1fr)">
+        <div><div class="k">Trades</div><div id="btTrades" class="v">--</div></div>
+        <div><div class="k">Hit rate</div><div id="btHitRate" class="v">--</div></div>
+        <div><div class="k">Expectancy</div><div id="btExpectancy" class="v">--</div></div>
+        <div><div class="k">Profit factor</div><div id="btProfitFactor" class="v">--</div></div>
+        <div><div class="k">Max drawdown</div><div id="btDrawdown" class="v">--</div></div>
+        <div><div class="k">Spread cost</div><div id="btSpread" class="v">--</div></div>
+      </div>
+      <div class="grid cols-2" style="margin-top:16px;gap:14px">
+        <div>
+          <div class="il" style="margin-bottom:8px">Indicator contribution (Δ expectancy if removed)</div>
+          <div id="btWeights"></div>
+        </div>
+        <div>
+          <div class="il" style="margin-bottom:8px">Live confidence calibration</div>
+          <div id="btCalibration" class="dim" style="font-size:0.72rem">No empirical samples yet.</div>
+        </div>
+      </div>
+      <div id="btLimitations" class="bt-warnings"></div>
+    </section>
+
     <!-- ===== Alerts & News ===== -->
     <section class="section grid cols-2">
       <div class="card">

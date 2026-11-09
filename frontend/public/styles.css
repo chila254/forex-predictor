@@ -195,6 +195,20 @@ body {
 .conf-fill { height: 100%; border-radius: 999px; transition: width 500ms cubic-bezier(.2,.8,.2,1); }
 .reason-chip { display: inline-block; font-size: 0.66rem; padding: 4px 9px; border-radius: 8px; background: rgba(255,255,255,0.05); color: var(--text-dim); margin: 3px 3px 0 0; }
 
+/* ===== Backtest card ===== */
+.bt-verdict { font-size: 0.82rem; font-weight: 700; padding: 12px 14px; border-radius: 12px; margin-bottom: 14px; border: 1px solid var(--border); }
+.bt-pending { color: var(--text-faint); }
+.bt-good { color: var(--up); background: rgba(52,229,155,0.08); border-color: rgba(52,229,155,0.3); }
+.bt-bad { color: var(--down); background: rgba(255,107,129,0.08); border-color: rgba(255,107,129,0.3); }
+.bt-bar-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 0.72rem; }
+.bt-bar-row .lbl { width: 72px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-dim); font-size: 0.64rem; }
+.bt-bar-track { flex: 1; height: 6px; border-radius: 999px; background: rgba(255,255,255,0.07); position: relative; overflow: hidden; }
+.bt-bar-center { position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: rgba(255,255,255,0.2); }
+.bt-bar-fill { position: absolute; top: 0; bottom: 0; border-radius: 999px; }
+.bt-bar-val { width: 52px; text-align: right; font-variant-numeric: tabular-nums; }
+.bt-warnings { margin-top: 14px; font-size: 0.66rem; color: var(--warn); line-height: 1.6; }
+.conf-src { font-size: 0.6rem; padding: 2px 6px; border-radius: 6px; background: rgba(34,211,238,0.14); color: var(--accent-2); margin-left: 6px; vertical-align: middle; }
+
 /* ===== Rows / stats ===== */
 .row { display: flex; justify-content: space-between; align-items: center; padding: 11px 14px; background: rgba(255,255,255,0.03); border-radius: 11px; }
 .row + .row { margin-top: 8px; }

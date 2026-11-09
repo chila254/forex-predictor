@@ -64,6 +64,8 @@ function setupEventListeners() {
   document.getElementById('refreshNews').addEventListener('click', loadNews);
   document.getElementById('refreshMtfBtn').addEventListener('click', loadMultiTimeframe);
   document.getElementById('refreshCorrBtn').addEventListener('click', loadCorrelation);
+  var btBtn = document.getElementById('refreshBacktestBtn');
+  if (btBtn) btBtn.addEventListener('click', function() { loadBacktest(true); });
 
   document.querySelectorAll('.tf-btn[data-tf]').forEach(function(btn) {
     btn.addEventListener('click', function() {
@@ -310,6 +312,7 @@ async function getPrediction() {
     update3DGauges(prediction.indicators);
     savePredictionToHistory(prediction);
     loadMultiTimeframe();
+    loadBacktest();
     var tt = prediction.signal.action === 'BUY' ? 'success' : prediction.signal.action === 'SELL' ? 'error' : 'info';
     showToast(prediction.signal.action + ' · ' + Math.round(prediction.signal.confidence * 100) + '% confidence', tt);
   } catch (error) {
@@ -347,7 +350,11 @@ function updateSignalDisplay(prediction) {
   act.innerHTML = regimeLabel + '<div>' + signal.action + '</div>'; act.style.color = s.color;
   var bar = document.getElementById('confidenceBar');
   bar.style.width = confPercent + '%'; bar.style.background = s.color;
-  document.getElementById('confidencePercent').textContent = confPercent + '%';
+  var pctEl = document.getElementById('confidencePercent');
+  var srcBadge = signal.confidenceSource === 'empirical'
+    ? '<span class="conf-src" title="Win-rate from the backtest calibration (' + (signal.confidenceSamples || 0) + ' samples)">empirical</span>'
+    : '<span class="conf-src" style="background:rgba(255,255,255,0.06);color:var(--text-faint)" title="Arithmetic estimate, not a calibrated probability">formula</span>';
+  pctEl.innerHTML = confPercent + '% ' + srcBadge;
 
   var reasonsEl = document.getElementById('signalReasons');
   if (reasonsEl && signal.reasons && signal.reasons.length) {
@@ -1215,6 +1222,88 @@ function update3DPriceChart(prediction) {
   };
   scenes.price.state.needsRebuild = true;
   if (!raw.candles || !raw.candles.length) loadHistoryChart();
+}
+
+// ========== Backtest & Signal Quality ==========
+async function loadBacktest(refresh) {
+  var el = document.getElementById('btVerdict');
+  if (!el) return;
+  try {
+    var url = '/api/backtest/' + currentAsset + '?timeframe=' + currentTimeframe + (refresh ? '&refresh=1' : '');
+    var res = await fetch(url);
+    var data = await res.json();
+    if (!data.success) throw new Error(data.error || 'Backtest failed');
+    renderBacktest(data);
+  } catch (e) {
+    el.className = 'bt-verdict bt-pending';
+    el.textContent = 'Backtest unavailable: ' + e.message;
+  }
+}
+
+function btSet(id, text, color) {
+  var n = document.getElementById(id);
+  if (!n) return;
+  n.textContent = text;
+  if (color) n.style.color = color;
+}
+
+function renderBacktest(data) {
+  var el = document.getElementById('btVerdict');
+  if (!data.summary) {
+    el.className = 'bt-verdict bt-pending';
+    el.textContent = data.reason || 'Not enough history to backtest this pair.';
+    ['btTrades','btHitRate','btExpectancy','btProfitFactor','btDrawdown','btSpread'].forEach(function(id) { btSet(id, '--'); });
+    var wEl = document.getElementById('btWeights'); if (wEl) wEl.innerHTML = '';
+    document.getElementById('btLimitations').innerHTML = (data.limitations || []).map(esc).join('<br>');
+    return;
+  }
+  var s = data.summary;
+  var positive = s.expectancyPips > 0;
+  el.className = 'bt-verdict ' + (positive ? 'bt-good' : 'bt-bad');
+  el.textContent = positive
+    ? '✓ Positive cost-adjusted expectancy: ' + s.expectancyPips + ' pips/trade over ' + s.trades + ' trades.'
+    : '✗ No edge after spread: ' + s.expectancyPips + ' pips/trade over ' + s.trades + ' trades (profit factor ' + s.profitFactor + ').';
+
+  btSet('btTrades', s.trades);
+  btSet('btHitRate', Math.round(s.hitRate * 100) + '%');
+  btSet('btExpectancy', (s.expectancyPips > 0 ? '+' : '') + s.expectancyPips + ' pips', positive ? COLORS.up : COLORS.down);
+  btSet('btProfitFactor', s.profitFactor, s.profitFactor >= 1 ? COLORS.up : COLORS.down);
+  btSet('btDrawdown', s.maxDrawdownPips + ' pips');
+  btSet('btSpread', data.cost ? data.cost.spreadPips + ' pips' : '--');
+
+  // Indicator contribution bars, centred at zero.
+  var marginal = (data.weights && data.weights.marginal) || [];
+  var maxAbs = marginal.reduce(function(m, x) { return Math.max(m, Math.abs(x.expectancyDeltaPips || 0)); }, 1) || 1;
+  document.getElementById('btWeights').innerHTML = marginal.map(function(m) {
+    var d = m.expectancyDeltaPips || 0;
+    var pct = Math.min(50, Math.abs(d) / maxAbs * 50);
+    var fill = d >= 0
+      ? 'left:50%;width:' + pct + '%;background:' + COLORS.up
+      : 'right:50%;width:' + pct + '%;background:' + COLORS.down;
+    return '<div class="bt-bar-row">' +
+      '<span class="lbl">' + esc(m.indicator) + '</span>' +
+      '<span class="bt-bar-track"><span class="bt-bar-center"></span><span class="bt-bar-fill" style="' + fill + '"></span></span>' +
+      '<span class="bt-bar-val" style="color:' + (d >= 0 ? COLORS.up : COLORS.down) + '">' + (d > 0 ? '+' : '') + d + '</span></div>';
+  }).join('');
+
+  var rec = data.weights && data.weights.recommendation;
+  var recEl = document.getElementById('btCalibration');
+  var calRows = (data.confidenceCalibration || []).filter(function(r) { return r.samples >= 8; }).slice(0, 8);
+  var calHtml = calRows.length
+    ? calRows.map(function(r) {
+        return '<div class="bt-bar-row"><span class="lbl">' + esc(r.regime.replace('TRENDING_', 'T-')) + ' ' + esc(r.action.slice(0, 1)) + '</span>' +
+          '<span class="bt-bar-track"><span class="bt-bar-fill" style="left:0;width:' + (r.winRate * 100) + '%;background:' + (r.winRate >= 0.5 ? COLORS.up : COLORS.down) + '"></span></span>' +
+          '<span class="bt-bar-val">' + Math.round(r.winRate * 100) + '%</span></div>';
+      }).join('')
+    : '<div class="dim" style="font-size:0.7rem">No bucket has ≥8 samples yet — live confidence stays on the formula.</div>';
+  var recNote = rec
+    ? '<div class="dim" style="margin-top:8px;font-size:0.66rem">Weights: ' + esc(rec.confidence) + ' confidence · ' + (rec.apply ? 'auto-applied' : 'defaults kept') + ' — ' + esc(rec.reason) + '</div>'
+    : '';
+  if (recEl) recEl.innerHTML = calHtml + recNote;
+
+  var lim = (data.limitations || []).slice();
+  if (data.dataQuality === 'close_only') lim.unshift('Data is close-only (no OHLC): SL/TP checked on close only.');
+  document.getElementById('btLimitations').innerHTML = lim.map(function(l) { return '⚠ ' + esc(l); }).join('<br>');
 }
 
 // ---- 3D gauges: three torus dials for RSI / ADX / Stochastic ----

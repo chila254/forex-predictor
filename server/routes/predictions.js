@@ -5,6 +5,9 @@ const predictionEngine = require('../services/predictionEngine');
 const Validators = require('../utils/validators');
 const logger = require('../utils/logger');
 const { publicError } = require('../utils/errors');
+const { getSpreadConfig, sessionMultiplier } = require('../config/tradingCosts');
+const { newsGuard } = require('../services/tradingCalendar');
+const { getCalibration } = require('./backtest');
 
 /**
  * POST /api/predictions/:symbol
@@ -59,10 +62,32 @@ router.post('/:symbol', async (req, res) => {
       // Live price unavailable, predictions will anchor to last historical close
     }
 
-    // Run prediction anchored to live price
-    const prediction = predictionEngine.predictWithLivePrice
-      ? predictionEngine.predictWithLivePrice(historicalData, livePrice, model)
-      : predictionEngine.predict(historicalData, model);
+    // Run prediction anchored to live price, with cost/session/news guards and
+    // empirical confidence from the cached backtest (best-effort; never blocks).
+    const { spreadPrice } = getSpreadConfig(symbol);
+    const sessionMult = sessionMultiplier(new Date());
+    let news = { blocked: false, events: [] };
+    let calibration = { confidenceTable: null, weights: predictionEngine.getActiveWeights() };
+    if (timeframe === 'D') {
+      try {
+        const [g, c] = await Promise.all([newsGuard(symbol), getCalibration(symbol, timeframe, historicalData)]);
+        news = g;
+        calibration = c;
+      } catch (e) {
+        // Guards are advisory; proceed with defaults if they fail.
+      }
+    }
+
+    const prediction = predictionEngine.predictWithLivePrice(
+      historicalData, livePrice, model, {
+        symbol,
+        weights: calibration.weights,
+        confidenceTable: calibration.confidenceTable,
+        sessionMultiplier: sessionMult,
+        spreadPrice,
+        newsBlocked: news.blocked
+      }
+    );
     
     // Validate prediction
     try {
@@ -90,6 +115,8 @@ router.post('/:symbol', async (req, res) => {
       warnings: histResult.warnings || [],
       responseTime: duration,
       dataSource,
+      session: { multiplier: sessionMult },
+      newsGuard: { blocked: news.blocked, events: news.events },
       ...prediction
     });
   } catch (error) {

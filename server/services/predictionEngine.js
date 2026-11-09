@@ -1,4 +1,15 @@
 const TechnicalAnalysis = require('./technicalAnalysis');
+const { getSpreadConfig } = require('../config/tradingCosts');
+
+// Hand-picked default indicator weights. The backtest/weight validator may
+// override these at runtime via applyWeights() once out-of-sample evidence is
+// stable; these values remain the reference for shrink-to-default.
+const DEFAULT_WEIGHTS = {
+  rsi: 1.5, macd: 1.5, bb: 1.0, ema: 1.0, stoch: 0.75,
+  adx: 0.5, sr: 0.5, model: 0.75, trendBias: 0.5
+};
+// Sum of every positive maximum contribution; used to normalise confidence.
+const MAX_SCORE = Object.values(DEFAULT_WEIGHTS).reduce((a, b) => a + b, 0);
 
 class PredictionEngine {
   
@@ -13,6 +24,16 @@ class PredictionEngine {
     // Walk-forward weights are O(n²); cache them per distinct series.
     this._weightCache = new Map();
     this._weightCacheMax = 64;
+    this._activeWeights = null; // runtime override set by applyWeights()
+  }
+
+  getActiveWeights() {
+    return this._activeWeights || DEFAULT_WEIGHTS;
+  }
+
+  // Auto-apply validated weights. Passing null restores the defaults.
+  applyWeights(weights) {
+    this._activeWeights = weights || null;
   }
 
   _seriesKey(prices) {
@@ -275,12 +296,15 @@ class PredictionEngine {
   }
 
   // Main prediction function
-  predict(priceData, model = 'ensemble') {
-    return this.predictWithLivePrice(priceData, null, model);
+  predict(priceData, model = 'ensemble', opts = {}) {
+    return this.predictWithLivePrice(priceData, null, model, opts);
   }
 
-  // Prediction anchored to live price when available
-  predictWithLivePrice(priceData, livePrice, model = 'ensemble') {
+  // Prediction anchored to live price when available.
+  // opts: { symbol, weights, confidenceTable, sessionMultiplier, spreadPrice,
+  //         newsBlocked, now } — all optional; omitting them preserves the
+  //         original behaviour exactly.
+  predictWithLivePrice(priceData, livePrice, model = 'ensemble', opts = {}) {
     if (!priceData || priceData.length < 14) {
       return { error: 'Insufficient data for prediction' };
     }
@@ -340,7 +364,7 @@ class PredictionEngine {
     const signal = this.generateSignal(
       priceChange, currentRSI, currentMACD, prevMACD, currentBB,
       currentPrice, currentATR, emaTrend, currentStoch,
-      regimeInfo, currentADX, sr, predictions
+      regimeInfo, currentADX, sr, predictions, opts
     );
 
     return {
@@ -364,66 +388,72 @@ class PredictionEngine {
     };
   }
 
-  // Regime-aware signal generation with tradeability filter
-  generateSignal(priceChange, rsi, macdHist, prevMacdHist, bbands, currentPrice, atr, emaTrend, stoch, regime, adx, sr, predictions) {
+  // Regime-aware signal generation with tradeability filter.
+  // opts is backward-compatible: {} reproduces the original output exactly.
+  generateSignal(priceChange, rsi, macdHist, prevMacdHist, bbands, currentPrice, atr, emaTrend, stoch, regime, adx, sr, predictions, opts = {}) {
+    const w = opts.weights || this.getActiveWeights();
+    const spreadPrice = opts.spreadPrice || 0;
+    const sessionMult = opts.sessionMultiplier == null ? 1 : opts.sessionMultiplier;
+    const pip = opts.symbol ? getSpreadConfig(opts.symbol).pip : (currentPrice > 100 ? 0.1 : 0.0001);
+
     let score = 0;
     const reasons = [];
     const regimeType = regime.regime;
 
     // 1. RSI — regime-conditioned scoring
     if (regimeType === 'TRENDING_UP') {
-      if (rsi < 35) { score += 1.5; reasons.push('RSI oversold in uptrend (' + rsi.toFixed(0) + ')'); }
-      else if (rsi < 50) { score += 1.0; reasons.push('RSI dip-buy zone (' + rsi.toFixed(0) + ')'); }
-      else if (rsi <= 70) { score += 0.2; reasons.push('RSI healthy uptrend (' + rsi.toFixed(0) + ')'); }
-      else if (rsi > 80) { score -= 1.0; reasons.push('RSI extended (' + rsi.toFixed(0) + ')'); }
+      if (rsi < 35) { score += w.rsi; reasons.push('RSI oversold in uptrend (' + rsi.toFixed(0) + ')'); }
+      else if (rsi < 50) { score += w.rsi * 0.667; reasons.push('RSI dip-buy zone (' + rsi.toFixed(0) + ')'); }
+      else if (rsi <= 70) { score += w.rsi * 0.133; reasons.push('RSI healthy uptrend (' + rsi.toFixed(0) + ')'); }
+      else if (rsi > 80) { score -= w.rsi * 0.667; reasons.push('RSI extended (' + rsi.toFixed(0) + ')'); }
     } else if (regimeType === 'TRENDING_DOWN') {
-      if (rsi > 65) { score -= 1.5; reasons.push('RSI overbought in downtrend (' + rsi.toFixed(0) + ')'); }
-      else if (rsi > 50) { score -= 1.0; reasons.push('RSI bounce-sell zone (' + rsi.toFixed(0) + ')'); }
-      else if (rsi >= 30) { score -= 0.2; reasons.push('RSI healthy downtrend (' + rsi.toFixed(0) + ')'); }
-      else if (rsi < 20) { score += 1.0; reasons.push('RSI extreme oversold (' + rsi.toFixed(0) + ')'); }
+      if (rsi > 65) { score -= w.rsi; reasons.push('RSI overbought in downtrend (' + rsi.toFixed(0) + ')'); }
+      else if (rsi > 50) { score -= w.rsi * 0.667; reasons.push('RSI bounce-sell zone (' + rsi.toFixed(0) + ')'); }
+      else if (rsi >= 30) { score -= w.rsi * 0.133; reasons.push('RSI healthy downtrend (' + rsi.toFixed(0) + ')'); }
+      else if (rsi < 20) { score += w.rsi * 0.667; reasons.push('RSI extreme oversold (' + rsi.toFixed(0) + ')'); }
     } else {
       // Ranging — classic mean-reversion RSI
-      if (rsi < 25) { score += 1.5; reasons.push('RSI oversold (' + rsi.toFixed(0) + ')'); }
-      else if (rsi < 40) { score += 0.8; reasons.push('RSI low (' + rsi.toFixed(0) + ')'); }
-      else if (rsi > 75) { score -= 1.5; reasons.push('RSI overbought (' + rsi.toFixed(0) + ')'); }
-      else if (rsi > 60) { score -= 0.8; reasons.push('RSI high (' + rsi.toFixed(0) + ')'); }
+      if (rsi < 25) { score += w.rsi; reasons.push('RSI oversold (' + rsi.toFixed(0) + ')'); }
+      else if (rsi < 40) { score += w.rsi * 0.533; reasons.push('RSI low (' + rsi.toFixed(0) + ')'); }
+      else if (rsi > 75) { score -= w.rsi; reasons.push('RSI overbought (' + rsi.toFixed(0) + ')'); }
+      else if (rsi > 60) { score -= w.rsi * 0.533; reasons.push('RSI high (' + rsi.toFixed(0) + ')'); }
     }
 
     // 2. MACD — crossovers are strong
-    if (macdHist > 0 && prevMacdHist <= 0) { score += 1.5; reasons.push('MACD bullish crossover'); }
-    else if (macdHist < 0 && prevMacdHist >= 0) { score -= 1.5; reasons.push('MACD bearish crossover'); }
-    else if (macdHist > 0) { score += 0.75; reasons.push('MACD bullish'); }
-    else if (macdHist < 0) { score -= 0.75; reasons.push('MACD bearish'); }
+    if (macdHist > 0 && prevMacdHist <= 0) { score += w.macd; reasons.push('MACD bullish crossover'); }
+    else if (macdHist < 0 && prevMacdHist >= 0) { score -= w.macd; reasons.push('MACD bearish crossover'); }
+    else if (macdHist > 0) { score += w.macd * 0.5; reasons.push('MACD bullish'); }
+    else if (macdHist < 0) { score -= w.macd * 0.5; reasons.push('MACD bearish'); }
 
     // 3. Bollinger Bands — regime-conditioned
     const bbRange = bbands.upper - bbands.lower;
     const bbPos = bbRange > 0 ? (currentPrice - bbands.lower) / bbRange : 0.5;
     if (regimeType === 'RANGING') {
       // Mean reversion works in ranges
-      if (bbPos <= 0.1) { score += 1.0; reasons.push('Price at lower BB (range)'); }
-      else if (bbPos <= 0.3) { score += 0.5; reasons.push('Price in lower BB zone'); }
-      else if (bbPos >= 0.9) { score -= 1.0; reasons.push('Price at upper BB (range)'); }
-      else if (bbPos >= 0.7) { score -= 0.5; reasons.push('Price in upper BB zone'); }
+      if (bbPos <= 0.1) { score += w.bb; reasons.push('Price at lower BB (range)'); }
+      else if (bbPos <= 0.3) { score += w.bb * 0.5; reasons.push('Price in lower BB zone'); }
+      else if (bbPos >= 0.9) { score -= w.bb; reasons.push('Price at upper BB (range)'); }
+      else if (bbPos >= 0.7) { score -= w.bb * 0.5; reasons.push('Price in upper BB zone'); }
     } else {
       // In trends, BB walk is continuation not reversal
-      if (bbPos <= 0.15 && regimeType === 'TRENDING_UP') { score += 0.8; reasons.push('BB pullback in uptrend'); }
-      else if (bbPos >= 0.85 && regimeType === 'TRENDING_DOWN') { score -= 0.8; reasons.push('BB pullback in downtrend'); }
+      if (bbPos <= 0.15 && regimeType === 'TRENDING_UP') { score += w.bb * 0.8; reasons.push('BB pullback in uptrend'); }
+      else if (bbPos >= 0.85 && regimeType === 'TRENDING_DOWN') { score -= w.bb * 0.8; reasons.push('BB pullback in downtrend'); }
     }
 
     // 4. EMA trend
-    if (emaTrend === 'BULL') { score += 1.0; reasons.push('EMA uptrend'); }
-    else { score -= 1.0; reasons.push('EMA downtrend'); }
+    if (emaTrend === 'BULL') { score += w.trendBias; reasons.push('EMA uptrend'); }
+    else { score -= w.trendBias; reasons.push('EMA downtrend'); }
 
     // 5. Stochastic
-    if (stoch < 25) { score += 0.75; reasons.push('Stoch oversold'); }
-    else if (stoch > 75) { score -= 0.75; reasons.push('Stoch overbought'); }
+    if (stoch < 25) { score += w.stoch; reasons.push('Stoch oversold'); }
+    else if (stoch > 75) { score -= w.stoch; reasons.push('Stoch overbought'); }
 
     // 6. ADX — trend strength modifier
     if (adx > 25) {
       reasons.push('Strong trend (ADX ' + adx.toFixed(0) + ')');
       // Amplify trend signals when ADX confirms strong trend
-      if (regimeType === 'TRENDING_UP') score += 0.5;
-      else if (regimeType === 'TRENDING_DOWN') score -= 0.5;
+      if (regimeType === 'TRENDING_UP') score += w.adx;
+      else if (regimeType === 'TRENDING_DOWN') score -= w.adx;
     } else if (adx < 15) {
       reasons.push('Weak trend (ADX ' + adx.toFixed(0) + ')');
     }
@@ -434,7 +464,7 @@ class PredictionEngine {
         Math.abs(r.price - currentPrice) < Math.abs(nearest.price - currentPrice) ? r : nearest
       );
       if (nearestRes.price > currentPrice && (nearestRes.price - currentPrice) < atr * 0.5) {
-        score -= 0.5;
+        score -= w.sr;
         reasons.push('Near resistance $' + nearestRes.price.toFixed(currentPrice > 100 ? 2 : 5));
       }
     }
@@ -443,45 +473,75 @@ class PredictionEngine {
         Math.abs(s.price - currentPrice) < Math.abs(nearest.price - currentPrice) ? s : nearest
       );
       if (nearestSup.price < currentPrice && (currentPrice - nearestSup.price) < atr * 0.5) {
-        score += 0.5;
+        score += w.sr;
         reasons.push('Near support $' + nearestSup.price.toFixed(currentPrice > 100 ? 2 : 5));
       }
     }
 
     // 8. Model prediction direction
-    if (priceChange > 0.01) { score += 0.75; reasons.push('Model predicts up'); }
-    else if (priceChange < -0.01) { score -= 0.75; reasons.push('Model predicts down'); }
+    if (priceChange > 0.01) { score += w.model; reasons.push('Model predicts up'); }
+    else if (priceChange < -0.01) { score -= w.model; reasons.push('Model predicts down'); }
 
-    // Determine action. MAX_SCORE is the sum of every indicator's maximum
-    // contribution (RSI 1.5, MACD 1.5, BB 1.0, EMA 1.0, Stoch 0.75, ADX
-    // amplify 0.5, S/R 0.5, model 0.75, trend-bias 0.5). Keep in sync if
-    // weights change — confidence is normalised against it.
-    const MAX_SCORE = 8.75;
     let action = 'HOLD';
     let confidence = 0;
+    let confidenceSource = 'default';
+    let confidenceSamples = 0;
 
     if (score >= 0.5) {
       action = 'BUY';
-      confidence = Math.min(0.3 + (score / MAX_SCORE) * 0.65, 0.95);
     } else if (score <= -0.5) {
       action = 'SELL';
-      confidence = Math.min(0.3 + (Math.abs(score) / MAX_SCORE) * 0.65, 0.95);
+    }
+
+    if (action !== 'HOLD') {
+      // Prefer an empirical win-rate when a calibration table is supplied.
+      const emp = opts.confidenceTable
+        ? this._empiricalConfidence(action, score, regimeType, opts.confidenceTable)
+        : null;
+      if (emp) {
+        confidence = emp.confidence;
+        confidenceSource = 'empirical';
+        confidenceSamples = emp.samples;
+      } else {
+        const s = Math.abs(score);
+        confidence = Math.min(0.3 + (s / MAX_SCORE) * 0.65, 0.95);
+      }
     } else {
-      action = 'HOLD';
       confidence = 0.5;
     }
 
-    // Tradeability filter — expected move must exceed noise/spread
+    // Tradeability filter — expected move must clear volatility AND round-trip
+    // spread (widened in thin sessions).
     const expectedMove = Math.abs(predictions[0] - currentPrice);
-    const minRequiredMove = atr * 0.3;
+    const sessionWidth = sessionMult > 0 ? Math.min(2, Math.max(1, 1 / Math.max(sessionMult, 0.5))) : 2;
+    let minRequiredMove = atr * 0.3;
+    if (spreadPrice > 0) {
+      minRequiredMove = Math.max(minRequiredMove, spreadPrice * 1.2) * sessionWidth;
+    }
     let tradeable = expectedMove > minRequiredMove;
     let tradeabilityReason = '';
 
     if (!tradeable && action !== 'HOLD') {
-      tradeabilityReason = 'Expected move too small vs volatility';
+      tradeabilityReason = spreadPrice > 0
+        ? 'Expected move too small vs volatility + spread'
+        : 'Expected move too small vs volatility';
       action = 'HOLD';
       confidence = 0.4;
-      reasons.push('⚠ Trade filtered: move < 0.3 ATR');
+      confidenceSource = 'default';
+      reasons.push(spreadPrice > 0 ? '⚠ Trade filtered: move < costs' : '⚠ Trade filtered: move < 0.3 ATR');
+    } else if (tradeable && action !== 'HOLD' && sessionMult < 0.9) {
+      // Thin session: widen the bar rather than silently passing a marginal setup.
+      tradeabilityReason = 'Thin session (' + Math.round(sessionMult * 100) + '% weighting)';
+    }
+
+    // Live news guard: never open into a high-impact event for this pair.
+    if (action !== 'HOLD' && opts.newsBlocked) {
+      action = 'HOLD';
+      confidence = 0.4;
+      confidenceSource = 'default';
+      tradeable = false;
+      tradeabilityReason = 'Blocked: high-impact economic event imminent';
+      reasons.push('⚠ Blocked: high-impact news window');
     }
 
     // Regime-adaptive ATR multiples for stops
@@ -540,26 +600,55 @@ class PredictionEngine {
     return {
       action,
       confidence: parseFloat(confidence.toFixed(3)),
+      confidenceSource,
+      confidenceSamples,
       summary,
       regime: regimeType,
       margins: {
         entry: currentPrice,
         stop: parseFloat(stop.toFixed(dp)),
         target: parseFloat(target.toFixed(dp)),
-        slPips: parseFloat((actualSlDistance * (currentPrice > 100 ? 10 : 10000)).toFixed(1)),
-        tpPips: parseFloat((actualTpDistance * (currentPrice > 100 ? 10 : 10000)).toFixed(1)),
+        slPips: parseFloat((actualSlDistance / pip).toFixed(1)),
+        tpPips: parseFloat((actualTpDistance / pip).toFixed(1)),
         riskReward: parseFloat(riskReward.toFixed(2))
       },
       tradeability: {
         tradeable,
-        expectedMovePips: parseFloat((expectedMove * (currentPrice > 100 ? 10 : 10000)).toFixed(1)),
-        minRequiredMovePips: parseFloat((minRequiredMove * (currentPrice > 100 ? 10 : 10000)).toFixed(1)),
+        expectedMovePips: parseFloat((expectedMove / pip).toFixed(1)),
+        minRequiredMovePips: parseFloat((minRequiredMove / pip).toFixed(1)),
         reason: tradeabilityReason
       },
       score: parseFloat(score.toFixed(2)),
       reasons
     };
   }
+
+  // Map |score| to a coarse bucket so calibration samples pool together.
+  static scoreBucket(score) {
+    const s = Math.abs(score);
+    if (s < 1.0) return 'low';
+    if (s < 1.5) return 'mid';
+    if (s < 2.5) return 'high';
+    return 'extreme';
+  }
+
+  // Empirical win-rate for (regime, action, bucket) with Laplace smoothing.
+  // Returns null when the sample is too small so callers fall back to the
+  // arithmetic estimate. Table shape: { regime: { action: { bucket: {hits,total} } } }.
+  _empiricalConfidence(action, score, regime, table) {
+    const bucket = PredictionEngine.scoreBucket(score);
+    const cell = table && table[regime] && table[regime][action] && table[regime][action][bucket];
+    if (!cell || !cell.total || cell.total < 8) return null;
+    const alpha = 2;
+    const rate = (cell.hits + alpha) / (cell.total + 2 * alpha);
+    return { confidence: Math.min(0.95, Math.max(0.30, rate)), samples: cell.total, bucket };
+  }
 }
 
+PredictionEngine.DEFAULT_WEIGHTS = DEFAULT_WEIGHTS;
+PredictionEngine.MAX_SCORE = MAX_SCORE;
+
 module.exports = new PredictionEngine();
+module.exports.DEFAULT_WEIGHTS = DEFAULT_WEIGHTS;
+module.exports.MAX_SCORE = MAX_SCORE;
+module.exports.PredictionEngine = PredictionEngine;

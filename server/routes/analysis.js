@@ -3,6 +3,7 @@ const router = express.Router();
 const dataFetcher = require('../services/dataFetcher');
 const predictionEngine = require('../services/predictionEngine');
 const logger = require('../utils/logger');
+const { sessionMultiplier } = require('../config/tradingCosts');
 
 /**
  * GET /api/analysis/multi-timeframe/:symbol
@@ -63,7 +64,7 @@ router.get('/multi-timeframe/:symbol', async (req, res) => {
         continue;
       }
 
-      const prediction = predictionEngine.predict(histData);
+      const prediction = predictionEngine.predict(histData, 'ensemble', { symbol, sessionMultiplier: sessionMultiplier(new Date()) });
       if (prediction.error) {
         results[tf.key] = {
           label: tf.label,

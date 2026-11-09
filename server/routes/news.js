@@ -1,47 +1,28 @@
 const express = require('express');
 const router = express.Router();
-const axios = require('axios');
 const logger = require('../utils/logger');
-
-const FOREX_NEWS_CACHE = { data: null, timestamp: 0 };
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const { getCalendar } = require('../services/tradingCalendar');
 
 router.get('/', async (req, res) => {
   try {
-    const now = Date.now();
-    if (FOREX_NEWS_CACHE.data && (now - FOREX_NEWS_CACHE.timestamp) < CACHE_TTL) {
-      return res.json({ success: true, source: 'cache', news: FOREX_NEWS_CACHE.data });
-    }
+    const calendar = await getCalendar();
+    if (!calendar.length) throw new Error('Calendar unavailable');
 
-    // Use free ForexFactory-style economic calendar via DailyFX RSS or fallback
-    const response = await axios.get('https://nfs.faireconomy.media/ff_calendar_thisweek.json', {
-      timeout: 8000
-    });
+    const news = calendar.slice(0, 20).map(e => ({
+      title: e.title,
+      country: e.country,
+      date: e.datetimeUTC.toISOString().split('T')[0],
+      time: e.datetimeUTC.toISOString().slice(11, 16),
+      impact: e.impact,
+      forecast: e.forecast,
+      previous: e.previous,
+      actual: e.actual
+    }));
 
-    const events = response.data;
-    if (Array.isArray(events)) {
-      const news = events.slice(0, 20).map(e => ({
-        title: e.title,
-        country: e.country,
-        date: e.date,
-        time: e.time,
-        impact: e.impact,
-        forecast: e.forecast,
-        previous: e.previous,
-        actual: e.actual || null
-      }));
-
-      FOREX_NEWS_CACHE.data = news;
-      FOREX_NEWS_CACHE.timestamp = now;
-
-      return res.json({ success: true, source: 'live', news });
-    }
-
-    throw new Error('Invalid news data format');
+    res.json({ success: true, source: 'live', news });
   } catch (error) {
     logger.error(`News fetch error: ${error.message}`);
-    
-    // Return fallback static news
+
     res.json({
       success: true,
       source: 'fallback',
