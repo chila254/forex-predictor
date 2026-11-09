@@ -89,7 +89,7 @@ class DataFetcher {
     console.log(`[DataFetcher] Fetching ${symbol} history from Frankfurter (${start}..${end})`);
 
     const response = await axios.get(
-      `https://api.frankfurter.app/${start}..${end}?from=${pair.from}&to=${pair.to}`,
+      `https://api.frankfurter.dev/v1/${start}..${end}?base=${pair.from}&symbols=${pair.to}`,
       { timeout: 10000 }
     );
 

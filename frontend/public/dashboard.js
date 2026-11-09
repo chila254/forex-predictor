@@ -887,134 +887,320 @@ function initHero3D() {
   animate('hero');
 }
 
-// ---- Price history + forecast scene ----
+// ---- Price history + forecast scene: TradingView-style candlesticks in 3D ----
+// A literal TradingView embed is impossible here (it is an external iframe and
+// its canvas cannot be read into WebGL), so this reimplements the core of its
+// look: OHLC candles, price lattice with ticks, candle colours by direction,
+// a floating current-price line, and a forecast ribbon projected to the right.
+
+function priceDecimals(p) { return p >= 100 ? 2 : p >= 10 ? 4 : 5; }
+
+// Build OHLC bars from server records. Frankfurter returns close-only rows
+// where open===high===low===close; for those we derive open from the previous
+// close and draw the wick across the close-to-close range so the chart shows
+// the actual session move instead of flat dojis. True OHLC (TwelveData/gold)
+// passes through untouched.
+function toCandles(records, startPrice) {
+  var out = [];
+  var prev = startPrice;
+  records.forEach(function(d, i) {
+    var close = parseFloat(d.close);
+    if (!isFinite(close)) return;
+    var o = parseFloat(d.open), h = parseFloat(d.high), l = parseFloat(d.low);
+    var flat = !isFinite(o) || (o === h && h === l && l === close);
+    var open = isFinite(o) && !flat ? o : (prev == null ? close : prev);
+    var high, low;
+    if (isFinite(h) && isFinite(l) && !flat) {
+      high = h; low = l;
+    } else {
+      var body = Math.abs(close - open);
+      high = Math.max(open, close) + body * 0.12;
+      low = Math.min(open, close) - body * 0.12;
+    }
+    high = Math.max(high, open, close);
+    low = Math.min(low, open, close);
+    var t = d.date ? new Date(d.date) : null;
+    out.push({ open: open, high: high, low: low, close: close, t: t, i: i });
+    prev = close;
+  });
+  return out;
+}
+
+function disposeGroup(group) {
+  while (group.children.length) {
+    var c = group.children.pop();
+    if (c && c.geometry) c.geometry.dispose();
+    if (c && c.material) {
+      if (Array.isArray(c.material)) c.material.forEach(function(m) { m.dispose(); });
+      else c.material.dispose();
+    }
+  }
+  group.rotation.set(0, 0, 0);
+  group.scale.set(1, 1, 1);
+  group.position.set(0, 0, 0);
+}
+
+// Shared layout constants in local units. Local X spans roughly [-X_MAX, X_MAX].
+var CANDLE = { halfWidth: 0.34, bodyDepth: 0.7, pitch: 0.86, yMax: 10, yMin: -8, zBack: -4.5, zFront: 4.5 };
+
+function buildPriceScene(state, canvas) {
+  var group = state.group;
+  disposeGroup(group);
+  state.needsRebuild = false;
+  var raw = state.raw;
+  var pal = palette();
+  var candles = (raw && raw.candles) || [];
+  var forecast = (raw && raw.forecast) || [];
+  if (!candles.length && !forecast.length) {
+    drawEmptyState(state, pal);
+    return;
+  }
+
+  var n = candles.length;
+  var fp = forecast.map(function(v) { return parseFloat(v); }).filter(function(v) { return isFinite(v); });
+
+  var lo = Infinity, hi = -Infinity;
+  candles.forEach(function(c) { lo = Math.min(lo, c.low); hi = Math.max(hi, c.high); });
+  fp.forEach(function(v) { lo = Math.min(lo, v); hi = Math.max(hi, v); });
+  if (!isFinite(lo)) { lo = 0; hi = 1; }
+  if (hi - lo < 1e-9) { hi += 0.001; lo -= 0.001; }
+  var pad = (hi - lo) * 0.08;
+  lo -= pad; hi += pad;
+
+  var totalSlots = Math.max(n + fp.length + 1, 2);
+  var pitch = Math.min(CANDLE.pitch, (CANDLE.yMax * 2) / totalSlots);
+  var xStart = -((totalSlots - 1) * pitch) / 2;
+  function xAt(i) { return xStart + i * pitch; }
+  function yAt(p) { return CANDLE.yMin + ((p - lo) / (hi - lo)) * (CANDLE.yMax - CANDLE.yMin); }
+  var maxBody = pitch * 0.78;
+  var halfW = Math.min(CANDLE.halfWidth, maxBody / 2);
+
+  var upMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(pal.up) });
+  var downMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(pal.down) });
+
+  // Candle body + wick builder. Bodies sit at z=0 extruded by bodyDepth.
+  var bodyGeoUp = new THREE.BoxGeometry(1, 1, 1);
+  var wickGeo = new THREE.CylinderGeometry(0.035, 0.035, 1, 6);
+  function addCandle(candle, x, opts) {
+    opts = opts || {};
+    var rising = candle.close >= candle.open;
+    var mat = opts.mat || (rising ? upMat : downMat);
+    var top = yAt(Math.max(candle.open, candle.close));
+    var bot = yAt(Math.min(candle.open, candle.close));
+    var bodyH = Math.max(top - bot, 0.06);
+    var body = new THREE.Mesh(bodyGeoUp, mat);
+    body.scale.set(halfW * 2, bodyH, CANDLE.bodyDepth);
+    body.position.set(x, (top + bot) / 2, 0);
+    group.add(body);
+
+    var wy1 = yAt(candle.low), wy2 = yAt(candle.high);
+    var wickH = Math.max(wy2 - wy1, 0.06);
+    var wick = new THREE.Mesh(wickGeo, mat);
+    wick.scale.set(1, wickH, 1);
+    wick.position.set(x, (wy1 + wy2) / 2, 0);
+    group.add(wick);
+  }
+
+  candles.forEach(function(c, i) { addCandle(c, xAt(i)); });
+
+  // Forecast: outline-only (wireframe) candles in warning colour so they read as
+  // "projected, not observed", plus a connecting dotted line back to the last close.
+  var fcColor = new THREE.Color(pal.warn);
+  var prevClose = n ? candles[n - 1].close : fp[0];
+  var fcLinePts = [];
+  if (n) fcLinePts.push(new THREE.Vector3(xAt(n - 1), yAt(prevClose), 0));
+  fp.forEach(function(v, j) {
+    var idx = n + j;
+    var o = j === 0 ? prevClose : fp[j - 1];
+    var top = yAt(Math.max(o, v)), bot = yAt(Math.min(o, v));
+    var bodyH = Math.max(top - bot, 0.06);
+    var edges = new THREE.EdgesGeometry(new THREE.BoxGeometry(halfW * 2, bodyH, CANDLE.bodyDepth));
+    var box = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: fcColor, transparent: true, opacity: 0.9 }));
+    box.position.set(xAt(idx), (top + bot) / 2, 0);
+    group.add(box);
+    var mid = new THREE.Mesh(new THREE.SphereGeometry(Math.max(0.11, pitch * 0.16), 10, 10), new THREE.MeshBasicMaterial({ color: fcColor }));
+    mid.position.set(xAt(idx), yAt(v), 0);
+    group.add(mid);
+    fcLinePts.push(new THREE.Vector3(xAt(idx), yAt(v), 0));
+  });
+  if (fcLinePts.length > 1) {
+    var fcGeo = new THREE.BufferGeometry().setFromPoints(fcLinePts);
+    var fcLine = new THREE.Line(fcGeo, new THREE.LineDashedMaterial({ color: fcColor, dashSize: 0.28, gapSize: 0.18, transparent: true, opacity: 0.85 }));
+    fcLine.computeLineDistances();
+    group.add(fcLine);
+  }
+
+  // ---- Lattice (horizontal price gridlines) + right-edge price labels ----
+  var TICKS = 6;
+  var latticePts = [];
+  var latticePtsMinor = [];
+  var labelGroup = state.group; // same group; labels are sprites
+  var xMin = xStart - pitch, xMax = xAt(totalSlots) + pitch * 2.2;
+  var labelX = xMax + pitch * 1.4;
+  var dec = priceDecimals(hi);
+  function makeLabel(text, x, y, color) {
+    if (typeof document === 'undefined' || !document.createElement) return;
+    var el = document.createElement('canvas');
+    var ctx = el.getContext && el.getContext('2d');
+    if (!ctx) return;
+    el.width = 240; el.height = 64;
+    ctx.font = '600 34px ui-monospace,Menlo,Consolas,monospace';
+    ctx.fillStyle = color;
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, 228, 34);
+    var tex = new THREE.CanvasTexture(el);
+    if (tex && tex.colorSpace !== undefined && THREE.SRGBColorSpace) tex.colorSpace = THREE.SRGBColorSpace;
+    var spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }));
+    spr.scale.set(3.6, 0.96, 1);
+    spr.position.set(x, y, CANDLE.zFront + 0.2);
+    labelGroup.add(spr);
+  }
+  var gridColor = new THREE.Color(pal.accent);
+  for (var t = 0; t <= TICKS; t++) {
+    var price = lo + (hi - lo) * (t / TICKS);
+    var y = yAt(price);
+    if (t % 2 === 0) {
+      latticePts.push(xMin, y, CANDLE.zBack, xMax, y, CANDLE.zBack);
+      makeLabel(price.toFixed(dec), labelX, y, pal.accent2);
+    } else {
+      latticePtsMinor.push(xMin, y, CANDLE.zBack, xMax, y, CANDLE.zBack);
+    }
+  }
+  // Depth lines from back to front at each end so the lattice reads as a floor.
+  [xMin, xMax].forEach(function(x) {
+    latticePts.push(x, CANDLE.yMin, CANDLE.zBack, x, CANDLE.yMin, CANDLE.zFront);
+    latticePts.push(x, CANDLE.yMax, CANDLE.zBack, x, CANDLE.yMax, CANDLE.zFront);
+  });
+  if (latticePts.length) {
+    var lg = new THREE.BufferGeometry();
+    lg.setAttribute('position', new THREE.Float32BufferAttribute(latticePts, 3));
+    group.add(new THREE.LineSegments(lg, new THREE.LineBasicMaterial({ color: gridColor, transparent: true, opacity: 0.28 })));
+  }
+  if (latticePtsMinor.length) {
+    var lgm = new THREE.BufferGeometry();
+    lgm.setAttribute('position', new THREE.Float32BufferAttribute(latticePtsMinor, 3));
+    group.add(new THREE.LineSegments(lgm, new THREE.LineBasicMaterial({ color: gridColor, transparent: true, opacity: 0.1 })));
+  }
+
+  // ---- Current price line (TradingView's dotted "last" crosshair) ----
+  var lastClose = n ? candles[n - 1].close : (fp.length ? fp[fp.length - 1] : null);
+  if (lastClose != null && isFinite(lastClose)) {
+    var ly = yAt(lastClose);
+    var lastGeo = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(xMin - pitch * 0.4, ly, 0),
+      new THREE.Vector3(xAt(n > 0 ? n - 1 : 0), ly, 0)
+    ]);
+    var lastLine = new THREE.Line(lastGeo, new THREE.LineDashedMaterial({ color: new THREE.Color(pal.accent2), dashSize: 0.22, gapSize: 0.16 }));
+    lastLine.computeLineDistances();
+    group.add(lastLine);
+    var marker = new THREE.Mesh(new THREE.SphereGeometry(Math.max(0.18, pitch * 0.24), 12, 12), new THREE.MeshBasicMaterial({ color: new THREE.Color(pal.accent2) }));
+    marker.position.set(xAt(n > 0 ? n - 1 : 0), ly, 0);
+    group.add(marker);
+    makeLabel(lastClose.toFixed(dec), labelX, ly, pal.warn);
+  }
+
+  state.bounds = { xMin: xMin - pitch, xMax: labelX + 0.5, yMin: CANDLE.yMin - 0.6, yMax: CANDLE.yMax + 0.6 };
+  if (state.autoFrame) {
+    state.autoFrame(canvas, (xMin + labelX) / 2, (CANDLE.yMin + CANDLE.yMax) / 2, (labelX - xMin) * 1.05);
+    state.autoFrame = null;
+  }
+}
+
+function drawEmptyState(state, pal) {
+  var g = new THREE.BufferGeometry();
+  var pts = [];
+  for (var i = -10; i <= 10; i++) { pts.push(i, 0, -4, i, 0, 4); pts.push(-10, 0, i * 0.4, 10, 0, i * 0.4); }
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+  state.group.add(new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: new THREE.Color(pal.accent), transparent: true, opacity: 0.12 })));
+}
+
 function initPriceScene() {
   var canvas = document.getElementById('price3d');
   if (!canvas) return;
   var renderer = makeRenderer(canvas);
   var scene = new THREE.Scene();
-  var camera = new THREE.PerspectiveCamera(50, 1, 0.1, 500);
-  camera.position.set(0, 34, 46);
-  camera.lookAt(0, 0, 0);
+  var camera = new THREE.PerspectiveCamera(45, 1, 0.1, 500);
 
-  scene.add(new THREE.AmbientLight(0xffffff, 0.7));
-  var dir = new THREE.DirectionalLight(0xffffff, 1.1);
-  dir.position.set(10, 40, 20);
+  // Soft lighting so box faces shade slightly differently and candles read as 3D.
+  scene.add(new THREE.AmbientLight(0xffffff, 0.85));
+  var dir = new THREE.DirectionalLight(0xffffff, 0.9);
+  dir.position.set(-6, 14, 16);
   scene.add(dir);
-  var grid = new THREE.GridHelper(60, 30, 0x2a3a55, 0x16233a);
-  grid.position.y = -12;
-  scene.add(grid);
 
-  var state = { group: new THREE.Group(), built: false, needsRebuild: false, raw: null };
+  var state = {
+    group: new THREE.Group(),
+    needsRebuild: false,
+    raw: null,
+    autoFrame: null
+  };
   scene.add(state.group);
 
-  // Simple orbit controls (mouse drag)
-  var drag = false, px = 0, py = 0, theta = 0.6, phi = 0.95, radius = 56;
-  canvas.addEventListener('mousedown', function(e) { drag = true; px = e.clientX; py = e.clientY; });
-  window.addEventListener('mouseup', function() { drag = false; });
+  // Orbit controls: horizontal drag rotates, vertical drag tilts, wheel zooms.
+  var target = new THREE.Vector3(0, 1, 0);
+  var theta = -0.42, phi = 0.32, radius = 30;
+  var drag = false, px = 0, py = 0;
+  canvas.addEventListener('mousedown', function(e) { drag = true; px = e.clientX; py = e.clientY; canvas.style.cursor = 'grabbing'; });
+  window.addEventListener('mouseup', function() { drag = false; canvas.style.cursor = 'grab'; });
   window.addEventListener('mousemove', function(e) {
     if (!drag) return;
     theta -= (e.clientX - px) * 0.006;
-    phi = Math.max(0.25, Math.min(1.35, phi - (e.clientY - py) * 0.005));
+    phi = Math.max(0.06, Math.min(1.2, phi + (e.clientY - py) * 0.004));
     px = e.clientX; py = e.clientY;
   });
   canvas.addEventListener('wheel', function(e) {
     e.preventDefault();
-    radius = Math.max(28, Math.min(110, radius + e.deltaY * 0.04));
+    radius = Math.max(12, Math.min(90, radius + e.deltaY * 0.03));
   }, { passive: false });
+  canvas.style.cursor = 'grab';
+
+  function frameCamera() {
+    var cx = target.x, cy = target.y, cz = target.z;
+    camera.position.set(
+      cx + radius * Math.sin(theta) * Math.cos(phi),
+      cy + radius * Math.sin(phi),
+      cz + radius * Math.cos(theta) * Math.cos(phi)
+    );
+    camera.lookAt(cx, cy, cz);
+  }
 
   scenes.price = {
     renderer: renderer, scene: scene, camera: camera, canvas: canvas, state: state,
     update: function() {
-      if (state.needsRebuild && state.raw) { buildPriceGeometry(state); }
-      camera.position.x = radius * Math.sin(theta) * Math.cos(phi);
-      camera.position.z = radius * Math.cos(theta) * Math.cos(phi);
-      camera.position.y = radius * Math.sin(phi);
-      camera.lookAt(0, 0, 0);
-      state.group.rotation.y += 0.0;
+      if (state.needsRebuild) { buildPriceScene(state, canvas); }
+      frameCamera();
     }
   };
+
+  // Choose a default view that fits the chart width after data arrives.
+  state.autoFrame = function(cv, cx, cy, spanX) {
+    target.set(cx, cy, 0);
+    var aspect = (cv.clientWidth || 900) / (cv.clientHeight || 460);
+    var fovY = camera.fov * Math.PI / 180;
+    var distY = (spanX * 0.5 * 1.15) / (Math.tan(fovY / 2) * Math.max(aspect, 0.5));
+    radius = Math.max(16, Math.min(80, distY / Math.cos(phi)));
+    phi = 0.30; theta = -0.38;
+  };
+
   sizeRenderer(renderer, canvas);
   camera.aspect = canvas.clientWidth / canvas.clientHeight;
   camera.updateProjectionMatrix();
+  frameCamera();
   animate('price');
-}
-
-function buildPriceGeometry(state) {
-  var raw = state.raw;
-  var pal = palette();
-  while (state.group.children.length) {
-    var c = state.group.children.pop();
-    if (c.geometry) c.geometry.dispose();
-    if (c.material) c.material.dispose();
-  }
-  state.needsRebuild = false;
-  if (!raw || raw.history.length < 2) return;
-
-  // Normalise price into [-10, 10] on Y; index along X; Z = 0 centre.
-  var all = raw.history.concat(raw.forecast);
-  var min = Math.min.apply(null, all), max = Math.max.apply(null, all);
-  var span = (max - min) || 1;
-  function yOf(p) { return ((p - min) / span) * 20 - 10; }
-
-  var n = raw.history.length;
-  var histPts = [], fcPts = [];
-  for (var i = 0; i < n; i++) {
-    histPts.push(new THREE.Vector3((i - n / 2) * 0.55, yOf(raw.history[i]), 0));
-  }
-  var last = histPts[histPts.length - 1];
-  for (var j = 0; j < raw.forecast.length; j++) {
-    fcPts.push(new THREE.Vector3(last.x + (j + 1) * 0.55, yOf(raw.forecast[j]), 0));
-  }
-
-  var histGeo = new THREE.BufferGeometry().setFromPoints(histPts);
-  var histLine = new THREE.Line(histGeo, new THREE.LineBasicMaterial({ color: new THREE.Color(pal.accent), linewidth: 2 }));
-  state.group.add(histLine);
-
-  // Area fill under history (thin vertical ribbons)
-  var ribbonGeo = new THREE.BufferGeometry();
-  var rPos = [];
-  for (var k = 0; k < histPts.length; k++) {
-    rPos.push(histPts[k].x, -10, 0, histPts[k].x, histPts[k].y, 0);
-  }
-  ribbonGeo.setAttribute('position', new THREE.Float32BufferAttribute(rPos, 3));
-  var ribbon = new THREE.LineSegments(ribbonGeo, new THREE.LineBasicMaterial({ color: new THREE.Color(pal.accent), transparent: true, opacity: 0.22 }));
-  state.group.add(ribbon);
-
-  if (fcPts.length) {
-    var fcAll = [last].concat(fcPts);
-    var fcGeo = new THREE.BufferGeometry().setFromPoints(fcAll);
-    var fcLine = new THREE.Line(fcGeo, new THREE.LineDashedMaterial({ color: new THREE.Color(pal.warn), dashSize: 0.6, gapSize: 0.3 }));
-    fcLine.computeLineDistances();
-    state.group.add(fcLine);
-
-    fcPts.forEach(function(pt) {
-      var sph = new THREE.Mesh(
-        new THREE.SphereGeometry(0.28, 12, 12),
-        new THREE.MeshBasicMaterial({ color: new THREE.Color(pal.warn) })
-      );
-      sph.position.copy(pt);
-      state.group.add(sph);
-    });
-  }
-
-  // Current price marker
-  var marker = new THREE.Mesh(
-    new THREE.SphereGeometry(0.45, 16, 16),
-    new THREE.MeshBasicMaterial({ color: new THREE.Color(pal.accent2) })
-  );
-  marker.position.copy(last);
-  state.group.add(marker);
 }
 
 async function loadHistoryChart() {
   try {
     var res = await fetch('/api/prices/' + currentAsset + '/history?timeframe=' + currentTimeframe);
     var data = await res.json();
-    if (!data.success || !data.data) return;
-    var history = data.data.slice(-80).map(function(d) { return d.close; });
+    if (!data.success || !Array.isArray(data.data)) return;
+    var records = data.data.slice(currentTimeframe === 'D' ? -90 : -120);
+    var candles = toCandles(records, null);
     if (scenes.price) {
-      scenes.price.state.raw = { history: history, forecast: lastPrediction ? lastPrediction.predictions : [] };
+      scenes.price.state.raw = {
+        candles: candles,
+        forecast: lastPrediction && lastPrediction.predictions ? lastPrediction.predictions : []
+      };
       scenes.price.state.needsRebuild = true;
     }
   } catch(e) { console.error('History chart error:', e); }
@@ -1023,9 +1209,12 @@ async function loadHistoryChart() {
 function update3DPriceChart(prediction) {
   if (!scenes.price) return;
   var raw = scenes.price.state.raw || {};
-  scenes.price.state.raw = { history: raw.history || [], forecast: prediction.predictions || [] };
+  scenes.price.state.raw = {
+    candles: raw.candles || [],
+    forecast: (prediction && prediction.predictions) || []
+  };
   scenes.price.state.needsRebuild = true;
-  if (!raw.history || !raw.history.length) loadHistoryChart();
+  if (!raw.candles || !raw.candles.length) loadHistoryChart();
 }
 
 // ---- 3D gauges: three torus dials for RSI / ADX / Stochastic ----
